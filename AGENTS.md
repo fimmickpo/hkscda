@@ -25,6 +25,10 @@ volunteer journey and a role-gated admin back office.
 - Lint: `bun run lint` (~30s over the whole tree) — `bunx eslint <file>` for a
   single file, but the full run is cheap enough to just do before pushing
 - Format: `bun run format`
+- Local DB: `bun run db:start` (starts the local Supabase stack, then rewrites the
+  four Supabase keys in `.env.local` from `supabase status`), `db:stop`,
+  `db:restart`, `db:reset`, `db:migrate`, `db:status`, `db:env`. These run the
+  pinned `supabase` devDependency (2.120.0, the version CI installs).
 
 CI (`.github/workflows/ci.yml`) runs typecheck → test → lint → build → public brand
 verification on push and PR. Run the same gates locally before requesting review.
