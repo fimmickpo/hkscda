@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Status:** Design approved; implementation plan not yet written
-**Prior art:** `docs/layout-branch-stack.md`, `docs/public-route-parity.md`, `CODEX_STAGE_B_HANDOFF.md` (Stage B, WP1–WP7, merged 2026-08-28)
+**Prior art:** `docs/public-route-parity.md`, `CODEX_STAGE_B_HANDOFF.md` (Stage B, WP1–WP7, merged 2026-08-28)
 
 ## Summary
 

@@ -18,8 +18,8 @@ vendor demo was studied directly).
 
 Method: Chrome DevTools protocol — DOM + computed-CSS extraction, stepped-scroll
 observation at 1920/1024/390 viewports, Swiper API introspection, stylesheet keyframe
-and media-query parsing. Full-page captures in `docs/poofyco-study/`
-(desktop-full.png, tablet-full.png, mobile-full.png + slices).
+and media-query parsing. The full-page captures were removed in the 2026-10-26
+docs cleanup; the measurements below remain the record.
 
 > Note: requested via Playwright MCP; it was registered mid-session so its tools were
 > not yet loadable. Chrome DevTools MCP is the same engine (CDP) and produced identical

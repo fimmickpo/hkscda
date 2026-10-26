@@ -1,5 +1,11 @@
 # Public route parity
 
+> **Historical snapshot — not current.** This document was generated from an
+> earlier working tree (27 routes). As of 2026-10-26 the tree has about 30 public
+> page routes; `/internships`, `/supporter` and `/volunteer/operations` are not
+> listed below. Use `docs/project-overview.md` and `src/routes/` as the current
+> map, and treat the counts in this file as historical.
+
 Generated from the working tree by inspecting each route, not written by hand.
 Every column is read out of the route source, so this records what the code does
 rather than what the plan intends.

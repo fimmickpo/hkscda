@@ -1,5 +1,9 @@
 # Public copy review proposal
 
+> **Historical — 2026-09-05 source inventory.** Owner approval was never recorded
+> here; current public copy lives in the components/CMS, and current status is in
+> `docs/project-overview.md`.
+
 Source inventory only, 2026-09-05. No production CMS data or content was changed. Owner approval is still required for public copy replacement and factual rescue records.
 
 | Source | Current copy | Proposed owner-review copy |
