@@ -67,21 +67,51 @@ used on mobile). Confirmation arrives from the signed webhook at
 the backstop. The route verifies the digest and HMAC signature, then reconciles
 idempotently through the shared lifecycle.
 
-Enabling the method is an operator action, not part of a code deploy:
+Enabling the method is an operator action, not part of a code deploy. Checkout
+is gated in the database, not by a `VITE_*` flag or by
+`payment_public_config.is_publicly_visible` alone: `/donate` only offers a method
+with an enabled `checkout_method_approval` row, and only while
+`checkout_policy.enabled` is true.
 
-1. Approve the PayMe sandbox credentials and register
-   `{APP_URL}/api/webhooks/payme` with HSBC.
-2. Publish the `payme` row in `payment_public_config` and enable its
-   `checkout_method_approval` rows through the admin console (or the reviewed
-   operator SQL), exactly as for any other online method.
-3. Confirm `payme` no longer needs `payableTo`/`identifier` instruction details;
-   only `fps` requires them.
+1. Approve the PayMe sandbox credentials, set the `PAYME_*` variables in the
+   target environment (they take effect only after a redeploy) and register
+   `{APP_URL}/api/webhooks/payme` with HSBC. `APP_URL` must be a public https
+   origin that PayMe can reach.
+2. Create and publish a new `payme` config in `payment_public_config` through
+   `/admin/payment-methods` (draft, submit, publish), with the details from the
+   next step. The seeded row has no `published_by`, so `admit_new_checkout`
+   rejects it until a version has been published there.
+3. Keep `payableTo` and `identifier` filled in on that published `payme` config.
+   A PayMe donation never shows them, but the database still requires them for
+   `payme`: `admit_new_checkout` and the `checkout_method_manual_details_guard`
+   trigger reject a `payme` checkout or approval without them, and sponsorship
+   pledges still show them as manual PayMe instructions. Only the application
+   code has been relaxed to require them for `fps` alone. Scoping the database
+   check by purpose would need its own migration and is not part of this change.
+4. Approve the method. There is no admin screen for approvals or for the global
+   switch; use the audited RPCs through reviewed operator SQL, as the treasurer or
+   admin who owns the decision: `set_checkout_method_approval_with_audit` for
+   `payme` and the `donation` purpose, then `set_checkout_policy_with_audit`
+   once to turn checkout on.
+5. The go-live scope is whatever has an enabled approval. To offer only PayMe and
+   FPS at launch, approve `payme` and `fps` for `donation` and leave `stripe`,
+   `paypal` and `alipayhk` unapproved. Do not archive those `payment_public_config`
+   rows with direct SQL: the original PayMe design did that in a migration, which
+   was deliberately not ported because direct edits skip the audited publish flow
+   and no longer decide what `/donate` offers.
 
-The inbound signature shape must be validated against the HSBC sandbox and the
-`docs/payme/PayMe_APIs_Test_Pack_v1.8.xlsx` test pack before go-live. If the
-real headers differ from the implemented `(request-target)`, `digest`,
-`x-client-id`, and `x-event-type` set, adjust
-`src/lib/donations/payme-webhook.server.ts` only.
+The inbound notification must be validated against the HSBC sandbox and the
+`docs/payme/PayMe_APIs_Test_Pack_v1.8.xlsx` test pack before go-live: the
+`(request-target)`, `digest`, `x-client-id`, and `x-event-type` signature
+headers, and the `totalAmount` and `currencyCode` fields of a success
+notification. Like the Stripe and PayPal handlers, the webhook credits a success
+only when `totalAmount` equals the payment amount and `currencyCode` is `HKD`.
+HSBC's samples send `totalAmount` as a decimal string; a number is accepted too.
+A success notification without a readable amount is recorded as
+`payment.provider_settlement_mismatch` in `audit_log` and is not credited. The
+`getPaymentRequest` status poll does not compare amounts, because the HSBC
+material in `docs/payme` does not list amount fields for that response. If the
+real payload differs, adjust `src/lib/donations/payme-webhook.server.ts` only.
 
 ## Supabase
 

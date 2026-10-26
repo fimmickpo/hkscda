@@ -11,8 +11,26 @@ import {
 export class PayMeNotificationError extends Error {}
 
 export type PayMeNotificationAction =
-  | { kind: "success"; paymentRequestId: string; statusCode: string; transactionId?: string }
+  | {
+      kind: "success";
+      paymentRequestId: string;
+      statusCode: string;
+      transactionId?: string;
+      settlement: NonNullable<ReconcileProviderArgs["providerSettlement"]>;
+    }
   | { kind: "failure"; paymentRequestId: string; statusCode: string };
+
+// PayMe documents totalAmount as a number, but its sample notifications send a decimal string
+// ("102.30"), so accept both. Anything that is not a plain amount with at most two decimals
+// becomes null, which reconcile treats as a settlement mismatch rather than crediting it.
+function parsePayMeAmountCents(value: unknown): number | null {
+  const text =
+    typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  if (!match) return null;
+  const cents = Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0"));
+  return Number.isSafeInteger(cents) ? cents : null;
+}
 
 export function parsePayMeNotification(input: {
   rawBody: string;
@@ -42,7 +60,13 @@ export function parsePayMeNotification(input: {
   });
   if (!ok) throw new PayMeNotificationError("PayMe notification signature invalid");
 
-  let body: { paymentRequestId?: string; statusCode?: string; transactionId?: string };
+  let body: {
+    paymentRequestId?: string;
+    statusCode?: string;
+    transactionId?: string;
+    totalAmount?: unknown;
+    currencyCode?: unknown;
+  };
   try {
     body = JSON.parse(input.rawBody);
   } catch {
@@ -58,6 +82,10 @@ export function parsePayMeNotification(input: {
       paymentRequestId: body.paymentRequestId,
       statusCode: body.statusCode,
       transactionId: body.transactionId,
+      settlement: {
+        amountCents: parsePayMeAmountCents(body.totalAmount),
+        currency: typeof body.currencyCode === "string" ? body.currencyCode : null,
+      },
     };
   }
   if (eventType === "payment.failure") {
@@ -99,5 +127,7 @@ export async function processPayMeNotification(input: {
     payload: { source: "webhook", ...action },
   };
 
-  return action.kind === "success" ? reconcile(base) : fail(base);
+  return action.kind === "success"
+    ? reconcile({ ...base, providerSettlement: action.settlement })
+    : fail(base);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createDonation } from "./service";
+import { createDonation, DonationIdempotencyConflictError } from "./service";
 import type { DonationRepository, PaymentProviders } from "./service";
 
 function createFakeRepository(): DonationRepository & {
@@ -582,6 +582,48 @@ describe("createDonation", () => {
       expect(retry.paymentRequestId).toBe("pr2");
       expect(retry.donationId).toBe("f8dce8fa-83f4-4d5f-b0b0-fbc3348efb7a");
     }
+  });
+
+  test("a payme resubmit while pending returns the stored PayCode link instead of minting another", async () => {
+    const repository = createFakeRepository();
+    let requests = 0;
+    const countingProviders: PaymentProviders = {
+      ...providers,
+      createPayMeCheckout: async () => {
+        requests += 1;
+        return { providerRef: "pr1", webLink: "https://web", appLink: "https://app" };
+      },
+    };
+    const input = { ...baseInput, method: "payme" as const };
+
+    await createDonation({ input, repository, providers: countingProviders });
+    const resubmit = await createDonation({ input, repository, providers: countingProviders });
+
+    expect(requests).toBe(1);
+    expect(resubmit).toMatchObject({ kind: "redirect", provider: "payme", url: "https://web" });
+  });
+
+  test("a failed payme payment closes its intent, so only a new idempotency key can retry", async () => {
+    const repository = createFakeRepository();
+    const input = { ...baseInput, method: "payme" as const };
+    await createDonation({ input, repository, providers });
+
+    // PayMe rejected, aborted or expired the request: the payment is failed for good. The
+    // donor's "try again" has to arrive under a fresh key (see checkoutIntent.ts).
+    const payment = await repository.findPaymentByIdempotencyKey(baseInput.idempotencyKey);
+    payment!.status = "failed";
+
+    await expect(createDonation({ input, repository, providers })).rejects.toThrow(
+      DonationIdempotencyConflictError,
+    );
+    const freshKey = "0b0b0b0b-1111-4222-8333-444444444444";
+    await expect(
+      createDonation({
+        input: { ...input, idempotencyKey: freshKey },
+        repository,
+        providers,
+      }),
+    ).resolves.toMatchObject({ kind: "payme" });
   });
 
   test("fps method still returns a manual result", async () => {

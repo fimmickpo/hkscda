@@ -10,7 +10,7 @@ volunteer journey and a role-gated admin back office.
 - **Database**: Supabase Postgres — RLS on every table, project ref `iihqjzilgawhfdhdevam`
 - **Styling**: Tailwind CSS v4 (utility-first, CSS variables for theming)
 - **UI components**: shadcn/ui on Radix UI primitives (`src/components/ui/`)
-- **Payments/email**: Stripe + PayPal webhooks, Resend, pdf-lib receipts
+- **Payments/email**: Stripe, PayPal, AlipayHK (COD) and HSBC PayMe webhooks, Resend, pdf-lib receipts
 - **Abuse controls**: Upstash Redis rate limiting, Cloudflare Turnstile
 - **Runtime/package manager**: Bun
 - **Deploy target**: Vercel (Nitro `vercel` preset → `.vercel/output`)

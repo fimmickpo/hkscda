@@ -66,8 +66,8 @@
 
 | 目錄 | 內容 |
 |---|---|
-| [`superpowers/plans/`](./superpowers/plans/) | 121 個實作計畫，檔名 `YYYY-MM-DD-topic.md` |
-| [`superpowers/specs/`](./superpowers/specs/) | 72 個設計規格 |
+| [`superpowers/plans/`](./superpowers/plans/) | 122 個實作計畫，檔名 `YYYY-MM-DD-topic.md` |
+| [`superpowers/specs/`](./superpowers/specs/) | 73 個設計規格 |
 
 - 新計畫／規格放這兩個目錄，依 `AGENTS.md` 的慣例。
 - 計畫內的 checkbox **不代表目前狀態**；有些已完成但沒有回填，有些從一開始就是提案。

@@ -38,6 +38,13 @@ import {
 import { pollDonationSucceeded } from "../lib/donations/publicStatus";
 import { checkoutExperienceFromViewport } from "../lib/donations/checkoutExperience";
 import {
+  browserCheckoutIntentStorage,
+  discardCancelledPayMeIntent,
+  discardCheckoutIntent,
+  selectCheckoutIntent,
+  type CheckoutIntent,
+} from "../lib/donations/checkoutIntent";
+import {
   centsToHkd,
   type CheckoutExperience,
   type DonationMethod,
@@ -347,7 +354,7 @@ export function DonatePage({
     webLink: string;
     status: "waiting" | "success" | "failed";
   } | null>(null);
-  const checkoutIntentRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const checkoutIntentRef = useRef<CheckoutIntent | null>(null);
   const availableMethods = useMemo(
     () =>
       initialMethods.filter(
@@ -371,13 +378,12 @@ export function DonatePage({
 
   useEffect(() => {
     if (!search.donation || returnState !== "confirmed") return;
-    checkoutIntentRef.current = null;
-    try {
-      window.sessionStorage.removeItem("hkscda-donation-checkout-intent");
-    } catch {
-      // Storage may be unavailable.
-    }
+    discardCheckoutIntent(checkoutIntentRef, browserCheckoutIntentStorage());
   }, [search.donation, returnState]);
+  useEffect(() => {
+    if (!search.donation || search.status !== "cancelled") return;
+    discardCancelledPayMeIntent(checkoutIntentRef, browserCheckoutIntentStorage());
+  }, [search.donation, search.status]);
   useEffect(() => {
     const donationId = search.donation;
     if (!donationId || !isPendingCheckoutReturn(search.status)) {
@@ -452,26 +458,12 @@ export function DonatePage({
       const fingerprint = Array.from(new Uint8Array(fingerprintBytes), (byte) =>
         byte.toString(16).padStart(2, "0"),
       ).join("");
-      let intent = checkoutIntentRef.current;
-      try {
-        const saved = JSON.parse(
-          window.sessionStorage.getItem("hkscda-donation-checkout-intent") ?? "null",
-        ) as { fingerprint?: string; key?: string } | null;
-        if (saved?.fingerprint === fingerprint && saved.key) {
-          intent = { fingerprint, key: saved.key };
-        }
-      } catch {
-        // Session storage can be unavailable; the in-memory key still covers retries.
-      }
-      if (!intent || intent.fingerprint !== fingerprint) {
-        intent = { fingerprint, key: window.crypto.randomUUID() };
-      }
-      checkoutIntentRef.current = intent;
-      try {
-        window.sessionStorage.setItem("hkscda-donation-checkout-intent", JSON.stringify(intent));
-      } catch {
-        // Keep the in-memory key when storage is unavailable.
-      }
+      const intent = selectCheckoutIntent({
+        fingerprint,
+        method,
+        ref: checkoutIntentRef,
+        storage: browserCheckoutIntentStorage(),
+      });
 
       const response = await fetch("/api/donations", {
         method: "POST",
@@ -532,15 +524,10 @@ export function DonatePage({
         const controller = new AbortController();
         void pollDonationSucceeded(data.donationId, { signal: controller.signal }).then((ok) => {
           setPaymeModal((prev) => (prev ? { ...prev, status: ok ? "success" : "failed" } : prev));
-          if (ok) {
-            setReturnState("confirmed");
-            checkoutIntentRef.current = null;
-            try {
-              window.sessionStorage.removeItem("hkscda-donation-checkout-intent");
-            } catch {
-              // Storage may be unavailable.
-            }
-          }
+          if (ok) setReturnState("confirmed");
+          // Either way this checkout is finished: a rejected or expired PayCode is failed for
+          // good on the server, so "try again" needs a fresh intent or it would only get a 409.
+          discardCheckoutIntent(checkoutIntentRef, browserCheckoutIntentStorage(), intent.key);
         });
         return;
       }
@@ -548,12 +535,7 @@ export function DonatePage({
         window.location.href = data.url;
         return;
       }
-      checkoutIntentRef.current = null;
-      try {
-        window.sessionStorage.removeItem("hkscda-donation-checkout-intent");
-      } catch {
-        // Storage may be unavailable.
-      }
+      discardCheckoutIntent(checkoutIntentRef, browserCheckoutIntentStorage());
       setManualResult(data);
     } catch {
       if (turnstileEnabled) setTurnstileResetKey((key) => key + 1);
