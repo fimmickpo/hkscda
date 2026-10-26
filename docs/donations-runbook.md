@@ -149,11 +149,114 @@ A success notification without a readable amount is recorded as
 material in `docs/payme` does not list amount fields for that response. If the
 real payload differs, adjust `src/lib/donations/payme-webhook.server.ts` only.
 
+## PayMe Local Testing
+
+A new local database has checkout switched off, so `/donate` shows the notice
+"網上捐款尚未完成正式啟用審批" and offers no payment method. To run a PayMe sandbox
+payment from a laptop you need three things: a `payme` config the checkout gate
+accepts, the sandbox credentials, and an amount with cents. Start the local
+database and the app first (`bun run db:start`, `bun run db:migrate` if
+migrations are pending, then `bun run dev`).
+
+### 1. Open the gate for PayMe
+
+The seeded `payme` config has no publisher and no `payableTo` or `identifier`, so
+the gate rejects it. In a deployed environment two different admins fix that in
+`/admin/payment-methods` (the submitter cannot publish), as described under
+"PayMe Sandbox Setup". A local database has one admin, so this script gives the
+seeded config a publisher and the two details directly (placeholders: a PayMe
+donation never shows them), then approves PayMe for donations and turns checkout
+on through the audited RPCs. `audit_log` records the approval and the switch, but
+not a publish. It can be run again. The container is named
+`supabase_db_<project_id>`; here that is `supabase_db_hkscda`. Run it against the
+local database only.
+
+```bash
+docker exec -i supabase_db_hkscda psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+begin;
+
+select id as admin_id, auth_user_id as admin_auth_id
+  from public.admin_user
+ where role in ('admin', 'treasurer') and status = 'active'
+ order by created_at limit 1 \gset
+
+update public.payment_public_config
+   set published_by = :'admin_id', published_at = now(),
+       details = details || jsonb_build_object('payableTo', 'HKSCDA', 'identifier', 'LOCAL-TEST')
+ where method = 'payme' and state = 'published';
+
+select id as payme_config_id, version as payme_config_version
+  from public.payment_public_config
+ where method = 'payme' and state = 'published' \gset
+
+select public.set_checkout_method_approval_with_audit(
+  :'admin_auth_id'::uuid, 'payme', 'donation', :'payme_config_id'::uuid, :payme_config_version, true);
+
+select public.set_checkout_policy_with_audit(
+  :'admin_auth_id'::uuid, (select version from public.checkout_policy where singleton), true);
+
+commit;
+SQL
+```
+
+Reload `/donate`; no restart is needed, because the page reads the gate on every
+load. PayMe is offered for the General and Medical purposes. Sponsor uses a
+separate `sponsorship` approval, which this script does not create. To switch
+checkout off again:
+
+```bash
+docker exec -i supabase_db_hkscda psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "select public.set_checkout_policy_with_audit((select auth_user_id from public.admin_user where role in ('admin','treasurer') and status='active' order by created_at limit 1), (select version from public.checkout_policy where singleton), false);"
+```
+
+### 2. Add the sandbox credentials
+
+Put the `PAYME_*` variables from "PayMe Sandbox Setup" in `.env.local`, which git
+ignores, using the sandbox values from the PayMe onboarding, and restart
+`bun run dev`: the server reads them at start-up. Without them creating a payment
+fails: the form says the donation could not be created, and the dev server log
+names the missing variable.
+
+### 3. Enter an amount with cents
+
+The sandbox chooses what to simulate from the cents of the amount (the table in
+the next section), but the donation form only takes whole dollars: the custom
+amount field has `step="1"`, so the browser refuses to submit `288.81`. For a
+test, lift the limit on the page from the browser console on `/donate`, then type
+the amount:
+
+```js
+document.getElementById("donation-custom-amount").step = "any";
+```
+
+A reload puts the limit back. The server accepts any amount from HK$10 to
+HK$10,000 in cents, so no code change is needed. A whole-dollar amount needs no
+workaround: the sandbox does nothing with it, so the PayCode just counts down and
+expires, as it does for `.80`.
+
+### 4. Run a payment
+
+1. On `/donate`, choose the General or Medical purpose and PayMe, and enter an
+   amount ending in `.81`.
+2. On a desktop the form moves to `/donate/payme/<donationId>`, which shows the
+   PayCode QR code, the amount and a countdown. There is nothing to scan: the
+   sandbox pays a `.81` PayCode by itself.
+3. PayMe cannot call `http://localhost`, so the webhook never arrives. The status
+   poll confirms the payment about a minute after the request was created (HSBC
+   test case 1009), and the page then moves to the confirmation.
+
+A local run has two limits. The webhook path needs a public https `APP_URL`, such
+as a deployed preview or a tunnel to the dev server. The phone flow returns to
+`APP_URL`, which a phone cannot open while it is `localhost`. If PayMe rejects the
+payment request because of the notification address, set `APP_URL` to a public
+https address and restart.
+
 ## PayMe Sandbox Test Amounts
 
 The PayMe sandbox decides what to simulate from the cent part of the amount, so
-donate an amount ending in one of these. They come from HSBC's test pack
-(`docs/payme/PayMe_APIs_Test_Pack_v1.8.xlsx`, "Sandbox Test Summary"):
+the donation has to end in one of these. The donation form only takes whole
+dollars; step 3 of "PayMe Local Testing" shows how to enter cents for a test.
+They come from HSBC's test pack (`docs/payme/PayMe_APIs_Test_Pack_v1.8.xlsx`,
+"Sandbox Test Summary"):
 
 | Amount ends in | The sandbox                                      | What the donor sees on a desktop                                                                               |
 | -------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
@@ -274,12 +377,15 @@ credentials, production key registration, webhook registration, deployment,
 and activation independently. Confirm the public HTTPS `APP_URL` and the
 registered notification URL before activating COD in production.
 
-The public form is additionally gated by
-`VITE_PUBLIC_DONATION_CHECKOUT_ENABLED=false`. Keep it false in local,
-preview, and production environments until every provider intended for public
-display has passed the production review above. Setting the flag to `true`
-only reveals the existing checkout UI; it does not replace provider,
-webhook, reconciliation, or merchant activation checks.
+The public form is gated in the database. `/donate` offers a method only while
+`checkout_policy.enabled` is true and the method has an enabled
+`checkout_method_approval` (see "PayMe Sandbox Setup"). The
+`VITE_PUBLIC_DONATION_CHECKOUT_ENABLED` variable that `.env.example` still lists
+is no longer read. Keep checkout off in preview and production environments
+until every provider intended for public display has passed the production
+review above; a local database may switch it on for sandbox testing (see "PayMe
+Local Testing"). Switching it on only reveals the existing checkout UI; it does
+not replace provider, webhook, reconciliation, or merchant activation checks.
 
 ## Verification
 
