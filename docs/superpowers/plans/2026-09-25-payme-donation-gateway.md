@@ -2376,10 +2376,10 @@ Expected: typecheck clean; all tests pass; lint clean; build succeeds. Fix any f
 
 Document these in the PR description for when real sandbox credentials are added (from the PayMe test pack cent-amount triggers):
 
-- Desktop success: donate `HK$x.44` → modal iframe shows PayCode → status polls to success.
+- Desktop success: donate `HK$x.81` → modal iframe shows PayCode → status polls to success.
 - Mobile-web/app: donate on a `< 768px` viewport → redirect to `appLink`; return via `appSuccessCallback` shows confirmed.
 - Failure: donate `HK$x.77` → status resolves to failed.
-- Expiry: donate `HK$x.80` / `HK$x.81` → PayCode expires → failed/unavailable.
+- Expiry: donate `HK$x.80` → PayCode expires → failed/unavailable.
 - Webhook: confirm PayMe POST to `/api/webhooks/payme` returns 200 and reconciles; re-delivery is a no-op (idempotent).
 
 - [ ] **Step 4: Commit**

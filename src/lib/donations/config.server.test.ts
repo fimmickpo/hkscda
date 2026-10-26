@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { getPayMeConfig, getPayMeConfigurationErrorField } from "./config.server";
+import {
+  getPayMeConfig,
+  getPayMeConfigurationErrorField,
+  getPayMeEffectiveDuration,
+} from "./config.server";
 
 const KEYS = [
   "PAYME_API_BASE",
@@ -48,5 +52,23 @@ describe("getPayMeConfig", () => {
     process.env.PAYME_SIGNING_KEY = "c2lnbmluZ2tleQ==";
     process.env.PAYME_EFFECTIVE_DURATION = "5";
     expect(() => getPayMeConfig()).toThrow();
+  });
+});
+
+describe("getPayMeEffectiveDuration", () => {
+  test("defaults to 600 seconds and needs no credentials", () => {
+    expect(getPayMeEffectiveDuration()).toBe(600);
+  });
+
+  test("reads the configured duration", () => {
+    process.env.PAYME_EFFECTIVE_DURATION = "900";
+    expect(getPayMeEffectiveDuration()).toBe(900);
+  });
+
+  test("rejects a duration PayMe would refuse", () => {
+    for (const bad of ["14", "abc", "600.5"]) {
+      process.env.PAYME_EFFECTIVE_DURATION = bad;
+      expect(() => getPayMeEffectiveDuration()).toThrow("PAYME_EFFECTIVE_DURATION");
+    }
   });
 });

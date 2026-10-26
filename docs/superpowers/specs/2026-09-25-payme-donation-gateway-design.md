@@ -7,6 +7,12 @@
 gateway for public donations, converting the current _manual_ PayMe method into
 a live create-request → PayCode/deep-link → webhook + poll → reconcile flow.
 
+> **Update, 2026-10-26.** The desktop flow in §1 and §6 (an iframe modal) was replaced by a
+> PayCode page at `/donate/payme/<donationId>` that draws a QR code from `webLink`, shows the
+> amount and a countdown, and has a Cancel that calls PayMe's cancel API. The non-goal "no
+> Cancel Payment Request call" no longer holds, and the status poll now starts 60 seconds after
+> the request is created. `docs/donations-runbook.md` describes the current behaviour.
+
 ## 1. Goal & Scope
 
 Enable the public donation form (`/donate`) so a donor can complete an online
@@ -158,9 +164,12 @@ PayMe `POST`s JSON to our `notificationUri`. Headers:
 
 ### 3.6 Sandbox behaviour (for later manual verification, not automated here)
 
-Cent-amount triggers: `.44` → auto-pay success; `.77` → payment failure;
-`.80`/`.81` → PayCode expiry scenarios; other amounts → normal expiry after
-`effectiveDuration`.
+Cent-amount triggers (HSBC test pack, "Sandbox Test Summary"): `.81` → the
+sandbox pays the PayCode itself; `.80` and any other ending → normal expiry after
+`effectiveDuration`; `.44` → the create request answers 500; `.45` → status
+requests answer 500; `.77` → a payment request that eventually fails. An earlier
+draft of this section had `.44`, `.80` and `.81` wrong; the runbook's "PayMe
+Sandbox Test Amounts" is the maintained table.
 
 ## 4. New / changed modules
 

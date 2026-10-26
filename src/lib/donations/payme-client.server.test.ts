@@ -100,6 +100,77 @@ describe("createPayMeClient", () => {
     expect(statusHeaders!.get("signature")).toContain("headers=");
   });
 
+  test("cancel sends a signed PUT with no body or digest", async () => {
+    let seen: { method?: string; url: string; headers: Headers; body?: unknown } | null = null;
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith("/oauth2/token")) return jsonResponse({ accessToken: "tok-1" });
+      seen = {
+        method: init?.method,
+        url: u,
+        headers: new Headers(init?.headers),
+        body: init?.body,
+      };
+      return jsonResponse({ paymentRequestId: "pr/1", statusCode: "PR004" });
+    }) as unknown as typeof fetch;
+
+    const client = createPayMeClient({
+      config,
+      fetchImpl,
+      now: () => new Date("2026-09-25T00:00:00Z"),
+      newTraceId: () => "trace-1",
+    });
+    const outcome = await client.cancelPaymentRequest("pr/1");
+
+    expect(outcome).toEqual({ kind: "cancelled" });
+    expect(seen!.method).toBe("PUT");
+    expect(seen!.url).toBe(`${config.apiBase}/payments/paymentrequests/pr%2F1/cancel`);
+    expect(seen!.body).toBeUndefined();
+    expect(seen!.headers.get("digest")).toBeNull();
+    expect(seen!.headers.get("authorization")).toBe("Bearer tok-1");
+    // The signature covers the request target, so it must name the cancel path and the PUT verb.
+    expect(seen!.headers.get("signature")).toContain(
+      'headers="(request-target) api-version request-date-time trace-id authorization"',
+    );
+  });
+
+  test("cancel maps PayMe's refusal codes to what the donor needs to know", async () => {
+    const outcomes: Record<string, string> = {};
+    for (const errorCode of ["EB020", "EB007", "EB021", "EB022"]) {
+      const fetchImpl = (async (url: string | URL | Request) => {
+        if (String(url).endsWith("/oauth2/token")) return jsonResponse({ accessToken: "tok-1" });
+        return jsonResponse(
+          { message: "refused", errors: [{ errorCode, errorDescription: "x" }] },
+          400,
+        );
+      }) as unknown as typeof fetch;
+      const client = createPayMeClient({ config, fetchImpl });
+      outcomes[errorCode] = (await client.cancelPaymentRequest("pr1")).kind;
+    }
+    expect(outcomes).toEqual({
+      EB020: "already_ended",
+      EB007: "already_ended",
+      EB021: "paid",
+      EB022: "in_progress",
+    });
+  });
+
+  test("cancel throws for any other failure, so the caller never reports a cancel that did not happen", async () => {
+    const failures: Array<() => Response> = [
+      () => jsonResponse({ errors: [{ errorCode: "EB008" }] }, 400),
+      () => jsonResponse({ message: "boom" }, 500),
+      () => new Response("not json", { status: 502 }),
+    ];
+    for (const failure of failures) {
+      const fetchImpl = (async (url: string | URL | Request) => {
+        if (String(url).endsWith("/oauth2/token")) return jsonResponse({ accessToken: "tok-1" });
+        return failure();
+      }) as unknown as typeof fetch;
+      const client = createPayMeClient({ config, fetchImpl });
+      await expect(client.cancelPaymentRequest("pr1")).rejects.toThrow("cancel payment request");
+    }
+  });
+
   test("throws on non-2xx create", async () => {
     const fetchImpl = (async (url: string | URL | Request) => {
       if (String(url).endsWith("/oauth2/token")) return jsonResponse({ accessToken: "tok-1" });

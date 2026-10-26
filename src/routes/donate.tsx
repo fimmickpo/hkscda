@@ -35,6 +35,7 @@ import {
   trackDonationEvent,
   type DonationCheckoutSnapshot,
 } from "../lib/donations/analytics";
+import { checkoutDestination } from "../lib/donations/checkoutDestination";
 import { pollDonationSucceeded } from "../lib/donations/publicStatus";
 import { checkoutExperienceFromViewport } from "../lib/donations/checkoutExperience";
 import {
@@ -51,7 +52,6 @@ import {
   type DonationPurpose,
 } from "../lib/donations/domain";
 import { BrandLogo } from "../components/site/BrandLogo";
-import { PayMePayCodeModal } from "../components/site/PayMePayCodeModal";
 import { TurnstileWidget, turnstileEnabled } from "../components/site/TurnstileWidget";
 
 export const Route = createFileRoute("/donate")({
@@ -91,7 +91,7 @@ type ManualResult = {
 type RedirectResult = {
   kind: "redirect";
   donationId: string;
-  provider: "stripe" | "paypal" | "cod";
+  provider: "stripe" | "paypal" | "cod" | "payme";
   url: string;
 };
 
@@ -149,7 +149,7 @@ const copy = {
     manualVerification:
       "原付款指示已撤回或暫時未能核實。請聯絡職員，並提供以下參考編號；請勿沿用舊付款資料。",
     reference: "付款參考編號",
-    submitError: "暫時未能建立捐款，請稍後再試。",
+    submitError: "暫時未能建立捐款，請稍後再試，或選擇其他付款方式。",
     checkoutRecoveryRequired: "付款建立結果未能確認。請聯絡職員核實，暫時不要重複付款。",
     recoveryReference: "查詢編號",
     donorName: "姓名",
@@ -195,7 +195,8 @@ const copy = {
     manualVerification:
       "The payment instructions were withdrawn or cannot be verified. Contact our team with the reference below; do not reuse old payment details.",
     reference: "Payment reference",
-    submitError: "Donation could not be created. Please try again later.",
+    submitError:
+      "Donation could not be created. Please try again later or choose another payment method.",
     checkoutRecoveryRequired:
       "We cannot confirm the checkout outcome. Please contact our team before trying to pay again.",
     recoveryReference: "Reference",
@@ -350,10 +351,6 @@ export function DonatePage({
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [returnState, setReturnState] = useState<DonationReturnState | null>(null);
-  const [paymeModal, setPaymeModal] = useState<{
-    webLink: string;
-    status: "waiting" | "success" | "failed";
-  } | null>(null);
   const checkoutIntentRef = useRef<CheckoutIntent | null>(null);
   const availableMethods = useMemo(
     () =>
@@ -511,32 +508,14 @@ export function DonatePage({
         }
       }
 
-      if (data.kind === "payme") {
-        if (checkoutExperience === "wap") {
-          window.location.href = data.appLink;
-          return;
-        }
-        // PayMe's hosted PayCode page refuses framing (X-Frame-Options), so open
-        // it in a new tab. This is best-effort — a blocked popup falls back to the
-        // "Open PayMe to pay" button in the modal, which is a direct user click.
-        window.open(data.webLink, "_blank", "noopener,noreferrer");
-        setPaymeModal({ webLink: data.webLink, status: "waiting" });
-        const controller = new AbortController();
-        void pollDonationSucceeded(data.donationId, { signal: controller.signal }).then((ok) => {
-          setPaymeModal((prev) => (prev ? { ...prev, status: ok ? "success" : "failed" } : prev));
-          if (ok) setReturnState("confirmed");
-          // Either way this checkout is finished: a rejected or expired PayCode is failed for
-          // good on the server, so "try again" needs a fresh intent or it would only get a 409.
-          discardCheckoutIntent(checkoutIntentRef, browserCheckoutIntentStorage(), intent.key);
-        });
+      if (data.kind === "manual") {
+        discardCheckoutIntent(checkoutIntentRef, browserCheckoutIntentStorage());
+        setManualResult(data);
         return;
       }
-      if (data.kind === "redirect") {
-        window.location.href = data.url;
-        return;
-      }
-      discardCheckoutIntent(checkoutIntentRef, browserCheckoutIntentStorage());
-      setManualResult(data);
+      // A PayMe desktop checkout leaves for the PayCode page, which keeps the saved checkout until
+      // it learns how the payment ended.
+      window.location.href = checkoutDestination(data, checkoutExperience);
     } catch {
       if (turnstileEnabled) setTurnstileResetKey((key) => key + 1);
       setError(t.submitError);
@@ -919,16 +898,6 @@ export function DonatePage({
           </form>
         </div>
       </section>
-
-      {paymeModal && (
-        <PayMePayCodeModal
-          webLink={paymeModal.webLink}
-          amountLabel={centsToHkd(Math.round(amountHkd * 100))}
-          status={paymeModal.status}
-          language={language}
-          onClose={() => setPaymeModal(null)}
-        />
-      )}
 
       <section className="bg-[var(--color-surface)]">
         <div className="public-container py-10 lg:py-14">

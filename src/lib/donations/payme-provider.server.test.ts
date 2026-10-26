@@ -21,6 +21,7 @@ function fakeClient(capture: (b: PayMeCreateBody) => void): PayMeClient {
       return { paymentRequestId: "pr1", webLink: "https://web", appLink: "https://app" };
     },
     getPaymentRequestStatus: async () => ({ statusCode: "PR001" }),
+    cancelPaymentRequest: async () => ({ kind: "cancelled" }),
   };
 }
 

@@ -19,11 +19,34 @@ export type PayMeStatusResponse = {
   transactionId?: string;
 };
 
+// What cancelling a payment request achieved. PayMe answers a request it can no longer cancel with
+// HTTP 400 and an error code, and each of those codes means something different to the donor.
+export type PayMeCancelOutcome =
+  | { kind: "cancelled" }
+  // EB020 (already aborted) or EB007 (expired): nothing is left to pay.
+  | { kind: "already_ended" }
+  // EB021: the PayCode was already paid.
+  | { kind: "paid" }
+  // EB022: a payment on the PayCode is being processed right now.
+  | { kind: "in_progress" };
+
 export type PayMeClient = {
   getAccessToken(): Promise<string>;
   createPaymentRequest(body: PayMeCreateBody): Promise<PayMeCreateResponse>;
   getPaymentRequestStatus(paymentRequestId: string): Promise<PayMeStatusResponse>;
+  cancelPaymentRequest(paymentRequestId: string): Promise<PayMeCancelOutcome>;
 };
+
+// PayMe reports failures as { message, errors: [{ errorCode, errorDescription }] }.
+async function readErrorCode(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as { errors?: Array<{ errorCode?: unknown }> };
+    const code = body.errors?.[0]?.errorCode;
+    return typeof code === "string" ? code : null;
+  } catch {
+    return null;
+  }
+}
 
 // Module-scoped so the 60-minute token is reused across requests, not per client.
 let cachedToken: { token: string; expiresAt: number } | null = null;
@@ -72,7 +95,7 @@ export function createPayMeClient(
   }
 
   async function signedRequest(
-    method: "POST" | "GET",
+    method: "POST" | "GET" | "PUT",
     path: string,
     rawBody: string | null,
   ): Promise<Response> {
@@ -152,6 +175,16 @@ export function createPayMeClient(
       const data = (await res.json()) as PayMeStatusResponse;
       if (!data.statusCode) throw new Error("PayMe status response missing statusCode");
       return data;
+    },
+    async cancelPaymentRequest(paymentRequestId) {
+      const path = `/payments/paymentrequests/${encodeURIComponent(paymentRequestId)}/cancel`;
+      const res = await signedRequest("PUT", path, null);
+      if (res.ok) return { kind: "cancelled" };
+      const code = await readErrorCode(res);
+      if (code === "EB020" || code === "EB007") return { kind: "already_ended" };
+      if (code === "EB021") return { kind: "paid" };
+      if (code === "EB022") return { kind: "in_progress" };
+      throw new Error(`PayMe cancel payment request failed with ${res.status}`);
     },
   };
 }

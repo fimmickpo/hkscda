@@ -152,12 +152,18 @@ export interface PayMeConfig {
   effectiveDuration: number;
 }
 
-export function getPayMeConfig(): PayMeConfig {
+/** How long a PayCode stays payable, in seconds. Needs no credentials, so the PayCode page can read it. */
+export function getPayMeEffectiveDuration(): number {
   const rawDuration = process.env.PAYME_EFFECTIVE_DURATION;
   const effectiveDuration = rawDuration ? Number(rawDuration) : 600;
   if (!Number.isInteger(effectiveDuration) || effectiveDuration < 15) {
     throw new Error("PAYME_EFFECTIVE_DURATION must be an integer >= 15");
   }
+  return effectiveDuration;
+}
+
+export function getPayMeConfig(): PayMeConfig {
+  const effectiveDuration = getPayMeEffectiveDuration();
   return {
     apiBase: (process.env.PAYME_API_BASE ?? "https://sandbox.api.payme.hsbc.com.hk").replace(
       /\/+$/,

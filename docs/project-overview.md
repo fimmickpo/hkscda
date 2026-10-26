@@ -184,8 +184,8 @@ server/routes/            Nitro 專用 handler（目前只有兩個義工 bulk/t
    - Stripe Checkout（只收卡）
    - PayPal order／capture
    - AlipayHK COD（RSA/AES signed）
-   - HSBC PayMe（API v0.12）：簽名請求建立 payment request；網頁版在新分頁開 PayCode 頁，
-     手機用 deep link 進 PayMe app
+   - HSBC PayMe（API v0.12）：簽名請求建立 payment request；桌面前往 `/donate/payme/<id>`，
+     以 `webLink` 產生 QR 碼（含金額與倒數、可取消）；手機用 `appLink` 進 PayMe app
    - FPS：手動，返回付款指示與 reference
 4. 瀏覽器返回**永遠不會**把付款標成 paid；只有驗簽 webhook 才是權威。
 5. 收據：滿 HK$100 且要求收據 → 產生 PDF → 私有 `receipts` bucket；支援者用 OTP 登入後
@@ -367,7 +367,8 @@ server/routes/            Nitro 專用 handler（目前只有兩個義工 bulk/t
 - COD：RSA-SHA256 驗簽 + merchant／segment／currency／amount／order ref 比對。
 - PayMe：驗 `Digest` 與 HMAC-SHA256 `Signature`（`/api/webhooks/payme`）；成功通知的
   `totalAmount`／`currencyCode` 要等於本地紀錄；失敗通知只有 `PR004`／`PR007` 才標失敗，
-  其餘（例如 `PR001` 加 `reasonCode`）回 200 並保持 pending；`getPaymentRequest` 輪詢為備援。
+  其餘（例如 `PR001` 加 `reasonCode`）回 200 並保持 pending；`getPaymentRequest` 輪詢為備援，
+  建立後滿 60 秒才查詢、每筆至少相隔 10 秒。
 - Resend：svix 驗簽，只收 5 種 event。
 - 冪等三層：
   1. `webhook_event` unique `(provider, provider_event_id)` + 5 分鐘 lease。

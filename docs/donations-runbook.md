@@ -60,12 +60,39 @@ All PayMe values are server-only. Never expose them through a `VITE_*`
 variable, log the decoded signing key, or commit real credentials.
 
 The server creates a signed payment request and returns two links: `webLink`
-(the hosted PayCode page, opened in a new tab on desktop because PayMe sends
-`X-Frame-Options` and refuses framing) and `appLink` (the PayMe app deep link
-used on mobile). Confirmation arrives from the signed webhook at
-`POST {APP_URL}/api/webhooks/payme`, with a `getPaymentRequest` status poll as
-the backstop. The route verifies the digest and HMAC signature, then reconciles
-idempotently through the shared lifecycle.
+and `appLink`. What the donor sees depends on the device:
+
+- **Phone** (viewport under 768 px): the form sends the donor to `appLink`,
+  which opens the PayMe app. PayMe then returns them to
+  `/donate?status=success|cancelled&donation=<id>`.
+- **Desktop or tablet**: the form sends the donor to `/donate/payme/<donationId>`.
+  That page turns `webLink` into a QR code (the PayCode, drawn in the browser),
+  shows the amount and a countdown to the PayCode's expiry, and moves on by
+  itself: to `/donate?status=success…` once the payment is confirmed, or to a
+  clear message when the PayCode expires or its status cannot be confirmed.
+  `webLink` is the data inside the QR code, not a page to open (PayMe refuses
+  framing). Business logos are not drawn into the code yet; see the go-live steps.
+- **Cancel** on that page asks PayMe to cancel the payment request
+  (`PUT /payments/paymentrequests/{id}/cancel`) and only then fails the payment
+  and returns to `/donate?status=cancelled…`, so a donor who leaves cannot pay the
+  PayCode afterwards. If PayMe answers that the PayCode was just paid (`EB021`) or
+  a payment is in progress (`EB022`), nothing is failed and the page keeps waiting.
+  If PayMe cannot be reached the donor is told the PayCode is still valid.
+
+Confirmation arrives from the signed webhook at
+`POST {APP_URL}/api/webhooks/payme`. The status poll is the backstop: the page
+asks our own status route every 10 seconds, and that route asks PayMe
+(`getPaymentRequest`) only once 60 seconds have passed since the request was
+created without a notification, and at most once every 10 seconds per payment,
+as HSBC recommends. The route verifies the digest and HMAC signature, then
+reconciles idempotently through the shared lifecycle.
+
+If the PayCode has expired and the payment is still pending after a further 30
+seconds, the page says the status could not be confirmed, tells the donor not to
+pay again and to contact the donation inbox with the donation reference. The
+saved checkout is kept in that case, so the same details cannot start a second
+payment. The page keeps listening for 30 minutes and turns into the confirmation
+if the payment is confirmed late.
 
 A `payment.failure` notification fails the payment only when its `statusCode` is
 `PR004` (rejected or aborted) or `PR007` (expired), the same two codes the status
@@ -121,6 +148,64 @@ A success notification without a readable amount is recorded as
 `getPaymentRequest` status poll does not compare amounts, because the HSBC
 material in `docs/payme` does not list amount fields for that response. If the
 real payload differs, adjust `src/lib/donations/payme-webhook.server.ts` only.
+
+## PayMe Sandbox Test Amounts
+
+The PayMe sandbox decides what to simulate from the cent part of the amount, so
+donate an amount ending in one of these. They come from HSBC's test pack
+(`docs/payme/PayMe_APIs_Test_Pack_v1.8.xlsx`, "Sandbox Test Summary"):
+
+| Amount ends in | The sandbox                                      | What the donor sees on a desktop                                                                               |
+| -------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `.81`          | pays the PayCode itself shortly after creation   | "Payment confirmed", then the donation page's confirmation                                                     |
+| `.80`          | does nothing (any other ending behaves the same) | the countdown ends, then "The PayCode has expired" with a way back to the form                                 |
+| `.44`          | answers the create request with a 500            | the form's error: could not be created, try again or choose another payment method                             |
+| `.45`          | answers every status request with a 500          | after expiry, if no notification arrives, "We could not confirm your payment yet", with the donation reference |
+| `.77`          | creates a request that eventually fails          | "Payment not completed", with a way back to the form                                                           |
+
+To exercise the 60-second status poll (HSBC test case 1009), create the payment
+while `APP_URL` is an address PayMe cannot reach. The webhook then never arrives
+and the poll confirms the payment about a minute after the request was created.
+
+## PayMe: Sandbox to Production
+
+Sandbox and production are two separate PayMe environments with their own
+credentials. A sandbox token does not work against production. Switching is
+configuration only; no code changes:
+
+| Variable                                    | Sandbox                                 | Production                            |
+| ------------------------------------------- | --------------------------------------- | ------------------------------------- |
+| `PAYME_API_BASE`                            | `https://sandbox.api.payme.hsbc.com.hk` | `https://api.payme.hsbc.com.hk`       |
+| `PAYME_CLIENT_ID`, `PAYME_CLIENT_SECRET`    | sandbox credentials                     | production credentials issued by HSBC |
+| `PAYME_SIGNING_KEY_ID`, `PAYME_SIGNING_KEY` | sandbox signing key                     | production signing key                |
+| `PAYME_API_VERSION`                         | `0.12`                                  | `0.12`, unless HSBC says otherwise    |
+| `APP_URL`                                   | an https origin PayMe can reach         | the production origin                 |
+
+1. Complete HSBC's "Path to live". Run the sandbox test cases above and send the
+   PayMe Integration Team the filled-in test execution evidence: screenshots in
+   each supported language and, on desktop, at 640 × 480, 1280 × 720 and
+   1920 × 1080. HSBC also reviews the PayCode page's design and copy against its
+   design guidelines, which are not in this repository: ask the integration
+   contact for them. The page draws the QR code without a business logo today.
+   PayMe returns `businessLogos` in the create response, and production PayCodes
+   are expected to carry the merchant logo.
+2. HSBC issues the production credentials once the evidence is accepted, and may
+   ask for a closed live test (`Live Test Cases` in the test pack). Refunds are
+   not built into the site; refund a live test payment from the PayMe business
+   portal.
+3. Put the production values in the Vercel **Production** environment only. Keep
+   the sandbox values in Preview and in local `.env.local`, so a preview deploy or
+   a laptop can never move real money. Redeploy: variable changes apply only to
+   new deployments.
+4. The webhook address is sent to PayMe as `notificationUri` with every payment
+   request, built from `APP_URL`, so it follows the environment. Tell HSBC the
+   production address, `{APP_URL}/api/webhooks/payme`, as in the enabling steps
+   above.
+5. Switching credentials does not turn anything on. The method is still offered
+   only while it has an enabled approval in the checkout gate (steps 2 to 5
+   above); approve it for production separately from the sandbox.
+6. To go back, restore the sandbox values and redeploy, or disable the `payme`
+   approval. PayCodes already created stay payable until they expire.
 
 ## Supabase
 
