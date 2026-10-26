@@ -366,7 +366,8 @@ server/routes/            Nitro 專用 handler（目前只有兩個義工 bulk/t
 - PayPal：`verifyPayPalWebhook`；`CHECKOUT.ORDER.APPROVED` 先 capture，避免重送重複扣款。
 - COD：RSA-SHA256 驗簽 + merchant／segment／currency／amount／order ref 比對。
 - PayMe：驗 `Digest` 與 HMAC-SHA256 `Signature`（`/api/webhooks/payme`）；成功通知的
-  `totalAmount`／`currencyCode` 要等於本地紀錄；`getPaymentRequest` 輪詢為備援。
+  `totalAmount`／`currencyCode` 要等於本地紀錄；失敗通知只有 `PR004`／`PR007` 才標失敗，
+  其餘（例如 `PR001` 加 `reasonCode`）回 200 並保持 pending；`getPaymentRequest` 輪詢為備援。
 - Resend：svix 驗簽，只收 5 種 event。
 - 冪等三層：
   1. `webhook_event` unique `(provider, provider_event_id)` + 5 分鐘 lease。

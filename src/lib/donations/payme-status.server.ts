@@ -2,6 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createPayMeClient, type PayMeClient } from "./payme-client.server";
 import {
+  PAYME_SUCCESS_STATUS_CODES,
+  PAYME_TERMINAL_FAILURE_STATUS_CODES,
+} from "./payme-status-codes";
+import {
   failProviderPayment,
   reconcileProviderPayment,
   retrySucceededDonationSideEffects,
@@ -14,9 +18,6 @@ type PayMePayment = {
   amount_cents: number;
   status: "pending" | "succeeded";
 };
-
-const SUCCESS_CODES = new Set(["PR005"]);
-const FAILURE_CODES = new Set(["PR004", "PR007"]);
 
 export async function refreshPendingPayMeDonation(args: {
   donationId: string;
@@ -73,11 +74,11 @@ export async function refreshPendingPayMeDonation(args: {
     payload: { source: "status_refresh", statusCode, transactionId },
   };
 
-  if (SUCCESS_CODES.has(statusCode)) {
+  if (PAYME_SUCCESS_STATUS_CODES.has(statusCode)) {
     await reconcile(base);
     return { kind: "reconciled", statusCode };
   }
-  if (FAILURE_CODES.has(statusCode)) {
+  if (PAYME_TERMINAL_FAILURE_STATUS_CODES.has(statusCode)) {
     await fail(base);
     return { kind: "failed", statusCode };
   }

@@ -64,6 +64,22 @@ describe("refreshPendingPayMeDonation", () => {
     expect(res.kind).toBe("failed");
   });
 
+  test("PR004 fails", async () => {
+    let failed = false;
+    const res = await refreshPendingPayMeDonation({
+      donationId: "d1",
+      client: fakeClient({ id: "p1", provider_ref: "pr1", amount_cents: 30000, status: "pending" }),
+      createClient: () => statusClient("PR004"),
+      reconcile: async () => ({}),
+      fail: async () => {
+        failed = true;
+        return {};
+      },
+    });
+    expect(failed).toBe(true);
+    expect(res.kind).toBe("failed");
+  });
+
   test("PR001 stays pending", async () => {
     const res = await refreshPendingPayMeDonation({
       donationId: "d1",
@@ -71,6 +87,32 @@ describe("refreshPendingPayMeDonation", () => {
       createClient: () => statusClient("PR001"),
     });
     expect(res.kind).toBe("pending");
+  });
+
+  test("a status that has not ended the request is neither reconciled nor failed", async () => {
+    for (const statusCode of ["PR001", "PR999"]) {
+      const calls: string[] = [];
+      const res = await refreshPendingPayMeDonation({
+        donationId: "d1",
+        client: fakeClient({
+          id: "p1",
+          provider_ref: "pr1",
+          amount_cents: 30000,
+          status: "pending",
+        }),
+        createClient: () => statusClient(statusCode),
+        reconcile: async () => {
+          calls.push("reconcile");
+          return {};
+        },
+        fail: async () => {
+          calls.push("fail");
+          return {};
+        },
+      });
+      expect(calls).toEqual([]);
+      expect(res).toEqual({ kind: "pending", statusCode });
+    }
   });
 
   test("already-succeeded recovers side effects", async () => {

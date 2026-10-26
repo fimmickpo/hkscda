@@ -67,6 +67,15 @@ used on mobile). Confirmation arrives from the signed webhook at
 the backstop. The route verifies the digest and HMAC signature, then reconciles
 idempotently through the shared lifecycle.
 
+A `payment.failure` notification fails the payment only when its `statusCode` is
+`PR004` (rejected or aborted) or `PR007` (expired), the same two codes the status
+poll acts on. HSBC's sample failure carries `PR001` plus a `reasonCode`, which
+reports one payer's failed attempt while the PayCode is still payable. That is
+acknowledged with a 200 and the payment stays pending, because a failed payment
+is final and a later payment on the same PayCode would otherwise be skipped. The
+donor sees "waiting" until the PayCode expires. Confirm in the sandbox which
+codes real failure notifications carry.
+
 Enabling the method is an operator action, not part of a code deploy. Checkout
 is gated in the database, not by a `VITE_*` flag or by
 `payment_public_config.is_publicly_visible` alone: `/donate` only offers a method

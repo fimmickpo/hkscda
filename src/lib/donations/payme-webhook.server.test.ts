@@ -45,6 +45,16 @@ function parseSuccess(body: Record<string, unknown>) {
   });
 }
 
+function parseFailure(body: Record<string, unknown>) {
+  const rawBody = JSON.stringify({ paymentRequestId: "pr1", ...body });
+  return parsePayMeNotification({
+    rawBody,
+    headers: signedHeaders(rawBody, "payment.failure"),
+    signingKeyBase64: KEY,
+    requestTarget: REQUEST_TARGET,
+  });
+}
+
 describe("parsePayMeNotification", () => {
   test("parses a valid success notification with its settlement", () => {
     const action = parseSuccess({
@@ -109,6 +119,32 @@ describe("parsePayMeNotification", () => {
     expect(parseSuccess({ totalAmount: "300.00", currencyCode: 344 })).toMatchObject({
       settlement: { currency: null },
     });
+  });
+
+  test("a failure on a request that has ended is a failure", () => {
+    for (const statusCode of ["PR004", "PR007"]) {
+      expect(parseFailure({ statusCode })).toEqual({
+        kind: "failure",
+        paymentRequestId: "pr1",
+        statusCode,
+      });
+    }
+  });
+
+  test("a failed attempt on a request that is still payable is not a failure", () => {
+    // HSBC's sample payment.failure: PR001 (still initiated) plus the reason for one attempt.
+    const sample = {
+      statusCode: "PR001",
+      reasonCode: "EW2035",
+      reasonDescription: "PayMe user's account is blocked.",
+    };
+    expect(parseFailure(sample)).toEqual({
+      kind: "attempt_failed",
+      paymentRequestId: "pr1",
+      statusCode: "PR001",
+    });
+    // Any other code, including ones PayMe may add later, also leaves the request pending.
+    expect(parseFailure({ statusCode: "PR999" })).toMatchObject({ kind: "attempt_failed" });
   });
 
   test("rejects a bad signature", () => {
@@ -189,22 +225,92 @@ describe("processPayMeNotification", () => {
     expect(args.providerSettlement).toEqual({ amountCents: null, currency: null });
   });
 
-  test("failure routes to fail", async () => {
-    const rawBody = JSON.stringify({ paymentRequestId: "pr1", statusCode: "PR004" });
-    let failed: Partial<ReconcileProviderArgs> | null = null;
-    await processPayMeNotification({
+  test("a failure on a request that has ended routes to fail with a stable event id", async () => {
+    for (const statusCode of ["PR004", "PR007"]) {
+      const rawBody = JSON.stringify({ paymentRequestId: "pr1", statusCode });
+      let failed: Partial<ReconcileProviderArgs> | null = null;
+      await processPayMeNotification({
+        rawBody,
+        headers: signedHeaders(rawBody, "payment.failure"),
+        requestTarget: REQUEST_TARGET,
+        client: {} as never,
+        config,
+        reconcile: async () => ({}),
+        fail: async (a) => {
+          failed = a;
+          return {};
+        },
+      });
+      expect(failed).toMatchObject({
+        provider: "payme",
+        providerEventId: `payme:pr1:${statusCode}`,
+      });
+      expect(failed).not.toHaveProperty("providerSettlement");
+    }
+  });
+
+  test("a failed attempt on a payable request leaves the payment pending", async () => {
+    const rawBody = JSON.stringify({
+      paymentRequestId: "pr1",
+      statusCode: "PR001",
+      reasonCode: "EW2035",
+    });
+    const calls: string[] = [];
+    const result = await processPayMeNotification({
       rawBody,
       headers: signedHeaders(rawBody, "payment.failure"),
       requestTarget: REQUEST_TARGET,
       client: {} as never,
       config,
-      reconcile: async () => ({}),
-      fail: async (a) => {
-        failed = a;
+      reconcile: async () => {
+        calls.push("reconcile");
+        return {};
+      },
+      fail: async () => {
+        calls.push("fail");
         return {};
       },
     });
-    expect(failed).not.toBeNull();
-    expect(failed).not.toHaveProperty("providerSettlement");
+    expect(calls).toEqual([]);
+    expect(result).toEqual({ kind: "pending", statusCode: "PR001" });
+  });
+
+  test("a payment whose attempt failed is still credited when the PayCode is paid later", async () => {
+    // A failed payment is terminal: failing it on the first notification would make this success
+    // a skipped event, with the money received and the donation left failed.
+    const calls: string[] = [];
+    const deps = {
+      requestTarget: REQUEST_TARGET,
+      client: {} as never,
+      config,
+      reconcile: async (a: ReconcileProviderArgs) => {
+        calls.push(`reconcile ${a.providerEventId}`);
+        return {};
+      },
+      fail: async (a: ReconcileProviderArgs) => {
+        calls.push(`fail ${a.providerEventId}`);
+        return {};
+      },
+    };
+    const attempt = JSON.stringify({ paymentRequestId: "pr1", statusCode: "PR001" });
+    const paid = JSON.stringify({
+      paymentRequestId: "pr1",
+      statusCode: "PR005",
+      totalAmount: "300.00",
+      currencyCode: "HKD",
+    });
+
+    await processPayMeNotification({
+      ...deps,
+      rawBody: attempt,
+      headers: signedHeaders(attempt, "payment.failure"),
+    });
+    await processPayMeNotification({
+      ...deps,
+      rawBody: paid,
+      headers: signedHeaders(paid, "payment.success"),
+    });
+
+    expect(calls).toEqual(["reconcile payme:pr1:PR005"]);
   });
 });

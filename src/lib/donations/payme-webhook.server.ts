@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getPayMeConfig, type PayMeConfig } from "./config.server";
 import { computeDigest, verifySignatureHeader } from "./payme-crypto.server";
+import { PAYME_TERMINAL_FAILURE_STATUS_CODES } from "./payme-status-codes";
 import {
   failProviderPayment,
   reconcileProviderPayment,
@@ -18,7 +19,8 @@ export type PayMeNotificationAction =
       transactionId?: string;
       settlement: NonNullable<ReconcileProviderArgs["providerSettlement"]>;
     }
-  | { kind: "failure"; paymentRequestId: string; statusCode: string };
+  | { kind: "failure"; paymentRequestId: string; statusCode: string }
+  | { kind: "attempt_failed"; paymentRequestId: string; statusCode: string };
 
 // PayMe documents totalAmount as a number, but its sample notifications send a decimal string
 // ("102.30"), so accept both. Anything that is not a plain amount with at most two decimals
@@ -89,11 +91,12 @@ export function parsePayMeNotification(input: {
     };
   }
   if (eventType === "payment.failure") {
-    return {
-      kind: "failure",
-      paymentRequestId: body.paymentRequestId,
-      statusCode: body.statusCode,
-    };
+    const failed = { paymentRequestId: body.paymentRequestId, statusCode: body.statusCode };
+    // A failure can report one payer's failed attempt while the request is still payable (HSBC's
+    // sample is PR001 with a reasonCode). Only PR004 and PR007 mean the request itself has ended.
+    return PAYME_TERMINAL_FAILURE_STATUS_CODES.has(body.statusCode)
+      ? { kind: "failure", ...failed }
+      : { kind: "attempt_failed", ...failed };
   }
   throw new PayMeNotificationError(`Unsupported PayMe event type: ${eventType}`);
 }
@@ -117,6 +120,12 @@ export async function processPayMeNotification(input: {
     signingKeyBase64: config.signingKeyBase64,
     requestTarget: input.requestTarget,
   });
+
+  // Failing the payment would be final, so a failed attempt changes nothing: the payment stays
+  // pending, and a later payment on the same PayCode, the status poll or an expiry settles it.
+  if (action.kind === "attempt_failed") {
+    return { kind: "pending" as const, statusCode: action.statusCode };
+  }
 
   const base: ReconcileProviderArgs = {
     client: input.client,
