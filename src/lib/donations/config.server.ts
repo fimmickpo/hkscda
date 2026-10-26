@@ -141,3 +141,51 @@ export function getCodConfigurationErrorField(error: unknown): string | null {
     Object.entries(knownErrors).find(([, messages]) => messages.includes(message))?.[0] ?? null
   );
 }
+
+export interface PayMeConfig {
+  apiBase: string;
+  apiVersion: string;
+  clientId: string;
+  clientSecret: string;
+  signingKeyId: string;
+  signingKeyBase64: string;
+  effectiveDuration: number;
+}
+
+export function getPayMeConfig(): PayMeConfig {
+  const rawDuration = process.env.PAYME_EFFECTIVE_DURATION;
+  const effectiveDuration = rawDuration ? Number(rawDuration) : 600;
+  if (!Number.isInteger(effectiveDuration) || effectiveDuration < 15) {
+    throw new Error("PAYME_EFFECTIVE_DURATION must be an integer >= 15");
+  }
+  return {
+    apiBase: (process.env.PAYME_API_BASE ?? "https://sandbox.api.payme.hsbc.com.hk").replace(
+      /\/+$/,
+      "",
+    ),
+    apiVersion: process.env.PAYME_API_VERSION ?? "0.12",
+    clientId: required("PAYME_CLIENT_ID"),
+    clientSecret: required("PAYME_CLIENT_SECRET"),
+    signingKeyId: required("PAYME_SIGNING_KEY_ID"),
+    signingKeyBase64: required("PAYME_SIGNING_KEY"),
+    effectiveDuration,
+  };
+}
+
+/** Only allowlisted field names may leave a failed configuration check. */
+export function getPayMeConfigurationErrorField(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  const fields = [
+    "PAYME_CLIENT_ID",
+    "PAYME_CLIENT_SECRET",
+    "PAYME_SIGNING_KEY_ID",
+    "PAYME_SIGNING_KEY",
+  ];
+  for (const field of fields) {
+    if (error.message === `Missing required environment variable: ${field}`) return field;
+  }
+  if (error.message === "PAYME_EFFECTIVE_DURATION must be an integer >= 15") {
+    return "PAYME_EFFECTIVE_DURATION";
+  }
+  return null;
+}

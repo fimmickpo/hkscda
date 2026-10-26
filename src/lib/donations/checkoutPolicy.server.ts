@@ -86,8 +86,7 @@ export async function loadPublicCheckoutState(
       !config ||
       config.version !== approval.config_version ||
       config.method !== approval.method ||
-      ((approval.method === "fps" || approval.method === "payme") &&
-        !hasPaymentInstructionDetails(config.details))
+      (approval.method === "fps" && !hasPaymentInstructionDetails(config.details))
     ) {
       return noMethods("unavailable");
     }

@@ -220,4 +220,9 @@ describe("donation domain", () => {
       },
     ]);
   });
+
+  test("payme is a valid online payment provider", () => {
+    const provider: OnlinePaymentProvider = "payme";
+    expect(provider).toBe("payme");
+  });
 });

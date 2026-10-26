@@ -44,6 +44,7 @@ import {
   type DonationPurpose,
 } from "../lib/donations/domain";
 import { BrandLogo } from "../components/site/BrandLogo";
+import { PayMePayCodeModal } from "../components/site/PayMePayCodeModal";
 import { TurnstileWidget, turnstileEnabled } from "../components/site/TurnstileWidget";
 
 export const Route = createFileRoute("/donate")({
@@ -72,7 +73,7 @@ type ManualResult = {
   donationId: string;
   reference: string;
   instructions: {
-    method: "fps" | "payme";
+    method: "fps";
     label: string;
     payableTo: string;
     identifier: string;
@@ -85,6 +86,14 @@ type RedirectResult = {
   donationId: string;
   provider: "stripe" | "paypal" | "cod";
   url: string;
+};
+
+type PayMeResult = {
+  kind: "payme";
+  donationId: string;
+  paymentRequestId: string;
+  webLink: string;
+  appLink: string;
 };
 
 type DonationReturnState = "pending" | "confirmed" | "unavailable";
@@ -334,6 +343,10 @@ export function DonatePage({
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [returnState, setReturnState] = useState<DonationReturnState | null>(null);
+  const [paymeModal, setPaymeModal] = useState<{
+    webLink: string;
+    status: "waiting" | "success" | "failed";
+  } | null>(null);
   const checkoutIntentRef = useRef<{ fingerprint: string; key: string } | null>(null);
   const availableMethods = useMemo(
     () =>
@@ -486,7 +499,7 @@ export function DonatePage({
         }
         throw new Error("Donation request failed");
       }
-      const data = (await response.json()) as ManualResult | RedirectResult;
+      const data = (await response.json()) as ManualResult | RedirectResult | PayMeResult;
 
       if (attribution) {
         saveCheckoutSnapshot(data.donationId, {
@@ -506,6 +519,31 @@ export function DonatePage({
         }
       }
 
+      if (data.kind === "payme") {
+        if (checkoutExperience === "wap") {
+          window.location.href = data.appLink;
+          return;
+        }
+        // PayMe's hosted PayCode page refuses framing (X-Frame-Options), so open
+        // it in a new tab. This is best-effort — a blocked popup falls back to the
+        // "Open PayMe to pay" button in the modal, which is a direct user click.
+        window.open(data.webLink, "_blank", "noopener,noreferrer");
+        setPaymeModal({ webLink: data.webLink, status: "waiting" });
+        const controller = new AbortController();
+        void pollDonationSucceeded(data.donationId, { signal: controller.signal }).then((ok) => {
+          setPaymeModal((prev) => (prev ? { ...prev, status: ok ? "success" : "failed" } : prev));
+          if (ok) {
+            setReturnState("confirmed");
+            checkoutIntentRef.current = null;
+            try {
+              window.sessionStorage.removeItem("hkscda-donation-checkout-intent");
+            } catch {
+              // Storage may be unavailable.
+            }
+          }
+        });
+        return;
+      }
       if (data.kind === "redirect") {
         window.location.href = data.url;
         return;
@@ -899,6 +937,16 @@ export function DonatePage({
           </form>
         </div>
       </section>
+
+      {paymeModal && (
+        <PayMePayCodeModal
+          webLink={paymeModal.webLink}
+          amountLabel={centsToHkd(Math.round(amountHkd * 100))}
+          status={paymeModal.status}
+          language={language}
+          onClose={() => setPaymeModal(null)}
+        />
+      )}
 
       <section className="bg-[var(--color-surface)]">
         <div className="public-container py-10 lg:py-14">

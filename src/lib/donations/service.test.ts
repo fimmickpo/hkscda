@@ -135,6 +135,9 @@ const providers: PaymentProviders = {
       url: "https://cod.test/checkout",
     };
   },
+  async createPayMeCheckout() {
+    return { providerRef: "pr_stub", webLink: "https://web.stub", appLink: "https://app.stub" };
+  },
 };
 
 const baseInput = {
@@ -428,6 +431,9 @@ describe("createDonation", () => {
       async createCodAlipayHkCheckout() {
         return { providerRef: "cod_order_123", url: "https://cod.test/checkout" };
       },
+      async createPayMeCheckout() {
+        return { providerRef: "pr_stub", webLink: "https://web.stub", appLink: "https://app.stub" };
+      },
     };
 
     await createDonation({
@@ -459,6 +465,9 @@ describe("createDonation", () => {
         if (calls === 1) throw new Error("provider response lost");
         expect(input.paymentId).toBe("payment-1");
         return providers.createStripeCheckout(input);
+      },
+      async createPayMeCheckout() {
+        throw new Error("payme unavailable");
       },
     };
     const args = {
@@ -511,6 +520,88 @@ describe("createDonation", () => {
     });
   });
 
+  test("payme method creates a payment request and returns kind payme", async () => {
+    const repository = createFakeRepository();
+    const paymeProviders: PaymentProviders = {
+      createStripeCheckout: async () => ({ providerRef: "s", url: "https://s" }),
+      createPayPalOrder: async () => ({ providerRef: "p", url: "https://p" }),
+      createCodAlipayHkCheckout: async () => ({ providerRef: "c", url: "https://c" }),
+      createPayMeCheckout: async () => ({
+        providerRef: "pr1",
+        webLink: "https://web",
+        appLink: "https://app",
+      }),
+    };
+    const result = await createDonation({
+      input: { ...baseInput, method: "payme" as const },
+      repository,
+      providers: paymeProviders,
+    });
+    expect(result.kind).toBe("payme");
+    if (result.kind === "payme") {
+      expect(result.paymentRequestId).toBe("pr1");
+      expect(result.webLink).toBe("https://web");
+      expect(result.appLink).toBe("https://app");
+      expect(result.donationId).toBeTruthy();
+    }
+  });
+
+  test("a payme checkout failure keeps the intent so a retry reuses the same donation", async () => {
+    const repository = createFakeRepository();
+    let attempts = 0;
+    const flakyProviders: PaymentProviders = {
+      createStripeCheckout: async () => ({ providerRef: "s", url: "https://s" }),
+      createPayPalOrder: async () => ({ providerRef: "p", url: "https://p" }),
+      createCodAlipayHkCheckout: async () => ({ providerRef: "c", url: "https://c" }),
+      createPayMeCheckout: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("payme down");
+        return { providerRef: "pr2", webLink: "https://web", appLink: "https://app" };
+      },
+    };
+
+    await expect(
+      createDonation({
+        input: { ...baseInput, method: "payme" as const },
+        repository,
+        providers: flakyProviders,
+      }),
+    ).rejects.toThrow("payme down");
+
+    // The provider may have accepted the request even though our call failed, so the
+    // donation and pending payment stay in place and the retry keeps the same intent.
+    const retry = await createDonation({
+      input: { ...baseInput, method: "payme" as const },
+      repository,
+      providers: flakyProviders,
+    });
+    expect(attempts).toBe(2);
+    expect(repository.donations).toHaveLength(1);
+    expect(retry.kind).toBe("payme");
+    if (retry.kind === "payme") {
+      expect(retry.paymentRequestId).toBe("pr2");
+      expect(retry.donationId).toBe("f8dce8fa-83f4-4d5f-b0b0-fbc3348efb7a");
+    }
+  });
+
+  test("fps method still returns a manual result", async () => {
+    const result = await createDonation({
+      input: { ...baseInput, method: "fps" as const },
+      repository: createFakeRepository(),
+      providers: {
+        createStripeCheckout: async () => ({ providerRef: "s", url: "https://s" }),
+        createPayPalOrder: async () => ({ providerRef: "p", url: "https://p" }),
+        createCodAlipayHkCheckout: async () => ({ providerRef: "c", url: "https://c" }),
+        createPayMeCheckout: async () => ({
+          providerRef: "pr1",
+          webLink: "https://web",
+          appLink: "https://app",
+        }),
+      },
+    });
+    expect(result.kind).toBe("manual");
+  });
+
   test("maps AlipayHK to COD and passes the validated checkout experience only to COD", async () => {
     const repository = createFakeRepository();
     const calls = { stripe: 0, paypal: 0, cod: [] as unknown[] };
@@ -530,6 +621,9 @@ describe("createDonation", () => {
           providerOrderRef: "hkscda-order-123",
           url: "https://cod.test/checkout",
         };
+      },
+      async createPayMeCheckout() {
+        return { providerRef: "pr_stub", webLink: "https://web.stub", appLink: "https://app.stub" };
       },
     } satisfies PaymentProviders;
 

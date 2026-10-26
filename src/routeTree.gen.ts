@@ -133,6 +133,7 @@ import { Route as ApiVolunteerOperationsRouteImport } from './routes/api/volunte
 import { Route as ApiVolunteerPolicyRouteImport } from './routes/api/volunteer/policy'
 import { Route as ApiVolunteerRegistrationsRouteImport } from './routes/api/volunteer/registrations'
 import { Route as ApiWebhooksCodRouteImport } from './routes/api/webhooks/cod'
+import { Route as ApiWebhooksPaymeRouteImport } from './routes/api/webhooks/payme'
 import { Route as ApiWebhooksPaypalRouteImport } from './routes/api/webhooks/paypal'
 import { Route as ApiWebhooksResendRouteImport } from './routes/api/webhooks/resend'
 import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
@@ -931,6 +932,11 @@ const ApiVolunteerRegistrationsRoute =
 const ApiWebhooksCodRoute = ApiWebhooksCodRouteImport.update({
   id: '/api/webhooks/cod',
   path: '/api/webhooks/cod',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWebhooksPaymeRoute = ApiWebhooksPaymeRouteImport.update({
+  id: '/api/webhooks/payme',
+  path: '/api/webhooks/payme',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWebhooksPaypalRoute = ApiWebhooksPaypalRouteImport.update({
@@ -1987,6 +1993,7 @@ export interface FileRoutesByFullPath {
   '/api/volunteer/policy': typeof ApiVolunteerPolicyRoute
   '/api/volunteer/registrations': typeof ApiVolunteerRegistrationsRoute
   '/api/webhooks/cod': typeof ApiWebhooksCodRoute
+  '/api/webhooks/payme': typeof ApiWebhooksPaymeRoute
   '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
@@ -2272,6 +2279,7 @@ export interface FileRoutesByTo {
   '/api/volunteer/policy': typeof ApiVolunteerPolicyRoute
   '/api/volunteer/registrations': typeof ApiVolunteerRegistrationsRoute
   '/api/webhooks/cod': typeof ApiWebhooksCodRoute
+  '/api/webhooks/payme': typeof ApiWebhooksPaymeRoute
   '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
@@ -2559,6 +2567,7 @@ export interface FileRoutesById {
   '/api/volunteer/policy': typeof ApiVolunteerPolicyRoute
   '/api/volunteer/registrations': typeof ApiVolunteerRegistrationsRoute
   '/api/webhooks/cod': typeof ApiWebhooksCodRoute
+  '/api/webhooks/payme': typeof ApiWebhooksPaymeRoute
   '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
@@ -2847,6 +2856,7 @@ export interface FileRouteTypes {
     | '/api/volunteer/policy'
     | '/api/volunteer/registrations'
     | '/api/webhooks/cod'
+    | '/api/webhooks/payme'
     | '/api/webhooks/paypal'
     | '/api/webhooks/resend'
     | '/api/webhooks/stripe'
@@ -3132,6 +3142,7 @@ export interface FileRouteTypes {
     | '/api/volunteer/policy'
     | '/api/volunteer/registrations'
     | '/api/webhooks/cod'
+    | '/api/webhooks/payme'
     | '/api/webhooks/paypal'
     | '/api/webhooks/resend'
     | '/api/webhooks/stripe'
@@ -3418,6 +3429,7 @@ export interface FileRouteTypes {
     | '/api/volunteer/policy'
     | '/api/volunteer/registrations'
     | '/api/webhooks/cod'
+    | '/api/webhooks/payme'
     | '/api/webhooks/paypal'
     | '/api/webhooks/resend'
     | '/api/webhooks/stripe'
@@ -3677,6 +3689,7 @@ export interface RootRouteChildren {
   ApiVolunteerPolicyRoute: typeof ApiVolunteerPolicyRoute
   ApiVolunteerRegistrationsRoute: typeof ApiVolunteerRegistrationsRoute
   ApiWebhooksCodRoute: typeof ApiWebhooksCodRoute
+  ApiWebhooksPaymeRoute: typeof ApiWebhooksPaymeRoute
   ApiWebhooksPaypalRoute: typeof ApiWebhooksPaypalRoute
   ApiWebhooksResendRoute: typeof ApiWebhooksResendRoute
   ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
@@ -4622,6 +4635,13 @@ declare module '@tanstack/react-router' {
       path: '/api/webhooks/cod'
       fullPath: '/api/webhooks/cod'
       preLoaderRoute: typeof ApiWebhooksCodRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/webhooks/payme': {
+      id: '/api/webhooks/payme'
+      path: '/api/webhooks/payme'
+      fullPath: '/api/webhooks/payme'
+      preLoaderRoute: typeof ApiWebhooksPaymeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/webhooks/paypal': {
@@ -6622,6 +6642,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiVolunteerPolicyRoute: ApiVolunteerPolicyRoute,
   ApiVolunteerRegistrationsRoute: ApiVolunteerRegistrationsRoute,
   ApiWebhooksCodRoute: ApiWebhooksCodRoute,
+  ApiWebhooksPaymeRoute: ApiWebhooksPaymeRoute,
   ApiWebhooksPaypalRoute: ApiWebhooksPaypalRoute,
   ApiWebhooksResendRoute: ApiWebhooksResendRoute,
   ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,

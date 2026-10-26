@@ -10,6 +10,7 @@ import {
   type PaymentProvider,
 } from "./domain";
 import { checkoutPurpose } from "./checkoutPolicy";
+import type { PayMeCheckoutResult } from "./payme-provider.server";
 import { resolvePaymentInstructions } from "../paymentPublicConfig/instructions";
 import type { CheckoutInstructionAdmission } from "../paymentPublicConfig/types";
 import type { CheckoutPurpose } from "./checkoutPolicy";
@@ -93,6 +94,7 @@ export type PaymentProviders = {
   createStripeCheckout(input: CheckoutProviderInput): Promise<CheckoutProviderResult>;
   createPayPalOrder(input: CheckoutProviderInput): Promise<CheckoutProviderResult>;
   createCodAlipayHkCheckout(input: CheckoutProviderInput): Promise<CheckoutProviderResult>;
+  createPayMeCheckout(input: CheckoutProviderInput): Promise<PayMeCheckoutResult>;
 };
 
 export type CheckoutProviderInput = {
@@ -129,12 +131,19 @@ export type CreateDonationResult =
       donationId: string;
       reference: string;
       instructions: {
-        method: "fps" | "payme";
+        method: "fps";
         label: string;
         payableTo: string;
         identifier: string;
         amountCents: number;
       } | null;
+    }
+  | {
+      kind: "payme";
+      donationId: string;
+      paymentRequestId: string;
+      webLink: string;
+      appLink: string;
     };
 
 export class DonationIdempotencyConflictError extends Error {
@@ -254,9 +263,7 @@ export async function createDonation({
       idempotency_key: requestKey,
       provider: paymentProvider,
       provider_ref:
-        donationInput.method === "fps" || donationInput.method === "payme"
-          ? createManualPaymentReference(donation.id)
-          : null,
+        donationInput.method === "fps" ? createManualPaymentReference(donation.id) : null,
       amount_cents: donationInput.amountCents,
       status: "pending",
     };
@@ -269,7 +276,7 @@ export async function createDonation({
   }
   assertPaymentMatches(payment, donation.id, paymentProvider, donationInput.amountCents);
 
-  if (donationInput.method === "fps" || donationInput.method === "payme") {
+  if (donationInput.method === "fps") {
     const reference = createManualPaymentReference(donation.id);
     const approved = resolvePaymentInstructions(admission, {
       method: donationInput.method,
@@ -323,6 +330,26 @@ export async function createDonation({
     purpose: donationInput.purpose,
     checkoutExperience: donationInput.checkoutExperience,
   };
+  // PayMe is an online provider whose result carries two links: a hosted
+  // PayCode page for desktop and an app deep link for mobile. The hosted page
+  // is stored as checkout_url so an idempotent resubmit returns the same
+  // payment request instead of minting a second PayCode.
+  if (donationInput.method === "payme") {
+    const paymeCheckout = await providers.createPayMeCheckout(checkoutInput);
+    await repository.updatePaymentProviderRef(
+      payment.id,
+      paymeCheckout.providerRef,
+      paymeCheckout.webLink,
+    );
+    return {
+      kind: "payme",
+      donationId: donation.id,
+      paymentRequestId: paymeCheckout.providerRef,
+      webLink: paymeCheckout.webLink,
+      appLink: paymeCheckout.appLink,
+    };
+  }
+
   // The provider call may have succeeded even if its response or our database
   // write fails. Keep the intent/payment and retry using the same provider key.
   let checkout: CheckoutProviderResult;

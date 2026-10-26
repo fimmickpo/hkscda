@@ -42,6 +42,47 @@ deduplicates notifications before reconciliation. A browser return cannot mark
 a donation paid: it remains pending until a verified notification or server-side
 status refresh confirms the transaction.
 
+## PayMe Sandbox Setup
+
+PayMe is an online, API-driven method. It is **not** a manual-instruction
+method any more: only FPS keeps the assisted-manual flow. Copy `.env.example`
+to `.env.local`, then set only sandbox values for these server-only variables:
+
+- `PAYME_API_BASE=https://sandbox.api.payme.hsbc.com.hk`
+- `PAYME_API_VERSION=0.12`
+- `PAYME_CLIENT_ID`
+- `PAYME_CLIENT_SECRET`
+- `PAYME_SIGNING_KEY_ID`
+- `PAYME_SIGNING_KEY` (base64 signing key from onboarding)
+- `PAYME_EFFECTIVE_DURATION=600` (PayCode lifetime in seconds, integer >= 15)
+
+All PayMe values are server-only. Never expose them through a `VITE_*`
+variable, log the decoded signing key, or commit real credentials.
+
+The server creates a signed payment request and returns two links: `webLink`
+(the hosted PayCode page, opened in a new tab on desktop because PayMe sends
+`X-Frame-Options` and refuses framing) and `appLink` (the PayMe app deep link
+used on mobile). Confirmation arrives from the signed webhook at
+`POST {APP_URL}/api/webhooks/payme`, with a `getPaymentRequest` status poll as
+the backstop. The route verifies the digest and HMAC signature, then reconciles
+idempotently through the shared lifecycle.
+
+Enabling the method is an operator action, not part of a code deploy:
+
+1. Approve the PayMe sandbox credentials and register
+   `{APP_URL}/api/webhooks/payme` with HSBC.
+2. Publish the `payme` row in `payment_public_config` and enable its
+   `checkout_method_approval` rows through the admin console (or the reviewed
+   operator SQL), exactly as for any other online method.
+3. Confirm `payme` no longer needs `payableTo`/`identifier` instruction details;
+   only `fps` requires them.
+
+The inbound signature shape must be validated against the HSBC sandbox and the
+`docs/payme/PayMe_APIs_Test_Pack_v1.8.xlsx` test pack before go-live. If the
+real headers differ from the implemented `(request-target)`, `digest`,
+`x-client-id`, and `x-event-type` set, adjust
+`src/lib/donations/payme-webhook.server.ts` only.
+
 ## Supabase
 
 Apply the repository's full ordered migration chain, not only the original
@@ -82,7 +123,9 @@ signed URLs when needed.
   uses COD `PC2MOBILE` and the hosted QR flow. Both return the donor to a
   pending confirmation screen until the server confirms payment.
 - PayPal: use sandbox buyer approval and capture.
-- FPS/PayMe: use assisted-manual flow and confirm through admin reconciliation.
+- FPS/PayMe: FPS uses the assisted-manual flow and is confirmed through admin
+  reconciliation. PayMe is online: confirm it through the signed webhook (and
+  the status-poll backstop), never through the browser return.
 - Webhooks: verify Stripe, PayPal, and COD notifications before processing and
   dedupe every provider event id. COD notifications are signed and must be
   idempotent; do not process unverified or mismatched payment data.

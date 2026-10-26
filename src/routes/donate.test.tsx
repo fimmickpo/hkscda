@@ -378,3 +378,47 @@ test("the consent legend follows the page language", async () => {
   expect(html).toContain("收據及通訊同意");
   expect(html).not.toContain("Receipts and communication consent");
 });
+
+test("desktop payme response opens the PayCode modal with an open-in-new-tab link", async () => {
+  // Render the PayMePayCodeModal directly — this is exactly what DonatePage renders when it
+  // receives a kind:"payme" response on a desktop viewport (checkoutExperience !== "wap").
+  // PayMe's hosted PayCode page cannot be framed, so the modal opens webLink in a NEW TAB
+  // (an anchor with target="_blank") instead of embedding an <iframe>.
+  const { PayMePayCodeModal } = await import("../components/site/PayMePayCodeModal");
+
+  const html = renderToStaticMarkup(
+    <PayMePayCodeModal
+      webLink="https://web"
+      amountLabel="HK$300"
+      status="waiting"
+      language="zh-HK"
+      onClose={() => {}}
+    />,
+  );
+
+  expect(html).toContain('role="dialog"');
+  expect(html).toContain('aria-modal="true"');
+  // No iframe — the blocked-in-frame page is opened in a new tab instead.
+  expect(html).not.toContain("<iframe");
+  // The primary CTA is an open-in-new-tab link pointing at the webLink from the API response.
+  expect(html).toContain('href="https://web"');
+  expect(html).toContain('target="_blank"');
+  // Status line is present and live so polling can surface success/failure.
+  expect(html).toContain('role="status"');
+});
+
+test("mobile payme response redirects to appLink (checkoutExperience is wap below 768px)", async () => {
+  // checkoutExperienceFromViewport drives the mobile/desktop branch in handleSubmit:
+  // when innerWidth < 768 the experience is "wap" and the code does
+  //   window.location.href = data.appLink; return;
+  // instead of opening the modal. Verify the viewport threshold matches the spec.
+  const { checkoutExperienceFromViewport } = await import("../lib/donations/checkoutExperience");
+
+  // Any width below 768 must produce "wap" (the branch that sets location.href = appLink).
+  expect(checkoutExperienceFromViewport(375)).toBe("wap");
+  expect(checkoutExperienceFromViewport(767)).toBe("wap");
+
+  // Any width at or above 768 must produce "desktop_qr" (the modal branch).
+  expect(checkoutExperienceFromViewport(768)).toBe("desktop_qr");
+  expect(checkoutExperienceFromViewport(1440)).toBe("desktop_qr");
+});

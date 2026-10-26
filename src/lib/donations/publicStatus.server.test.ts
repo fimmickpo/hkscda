@@ -109,4 +109,34 @@ describe("public donation status", () => {
     expect(result?.status).toBe("succeeded");
     expect(result?.paymentStatus).toBe("succeeded");
   });
+
+  test("calls refreshPendingPayMe before reading status", async () => {
+    let called = false;
+    const result = await loadPublicDonationStatus({
+      donationId: "11111111-1111-4111-8111-111111111111",
+      repository: {
+        refreshPendingPayMe: async () => {
+          called = true;
+        },
+        findStatus: async () => "succeeded",
+      },
+    });
+    expect(called).toBe(true);
+    expect(result?.status).toBe("succeeded");
+    expect(result?.paymentStatus).toBe("succeeded");
+  });
+
+  test("a refreshPendingPayMe failure is swallowed and the committed status is returned", async () => {
+    const result = await loadPublicDonationStatus({
+      donationId: "11111111-1111-4111-8111-111111111111",
+      repository: {
+        refreshPendingPayMe: async () => {
+          throw new Error("payme timeout");
+        },
+        findStatus: async () => "succeeded",
+      },
+    });
+    expect(result?.status).toBe("succeeded");
+    expect(result?.paymentStatus).toBe("succeeded");
+  });
 });

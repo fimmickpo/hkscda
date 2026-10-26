@@ -23,6 +23,7 @@ export type DonationEffectStatuses = {
 
 export type PublicDonationStatusRepository = {
   refreshPendingCod?: (donationId: string) => Promise<unknown>;
+  refreshPendingPayMe?: (donationId: string) => Promise<unknown>;
   findStatus: (donationId: string) => Promise<PublicDonationStatus | null>;
   findEffects?: (
     donationId: string,
@@ -47,7 +48,10 @@ export async function loadPublicDonationStatus({
   if (!donationIdSchema.safeParse(donationId).success) return null;
 
   try {
-    await repository.refreshPendingCod?.(donationId);
+    await Promise.all([
+      repository.refreshPendingCod?.(donationId),
+      repository.refreshPendingPayMe?.(donationId),
+    ]);
   } catch {
     // Refresh is best-effort. A provider or database timeout must not invent a
     // terminal state or hide the last locally committed donation status.

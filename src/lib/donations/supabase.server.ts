@@ -142,10 +142,14 @@ export function createSupabaseDonationRepository(client: SupabaseClient): Donati
 }
 export function createSupabaseDonationStatusRepository(
   client: SupabaseClient,
-  dependencies: Pick<PublicDonationStatusRepository, "refreshPendingCod"> = {},
+  dependencies: Pick<
+    PublicDonationStatusRepository,
+    "refreshPendingCod" | "refreshPendingPayMe"
+  > = {},
 ): PublicDonationStatusRepository {
   return {
     refreshPendingCod: dependencies.refreshPendingCod,
+    refreshPendingPayMe: dependencies.refreshPendingPayMe,
     async findStatus(donationId) {
       const [donationResult, paymentResult] = await Promise.all([
         client
