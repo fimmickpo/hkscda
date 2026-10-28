@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import {
-  assertUpstashConfig,
   clientIpFromHeaders,
   enforceRateLimit,
   getClientIp,
   retryAfterSeconds,
+  type RateLimitDatabase,
   type RateLimiter,
 } from "./rate-limit.server";
 
@@ -86,7 +86,7 @@ describe("enforceRateLimit", () => {
     expect(result.unavailable).toBe(true);
   });
 
-  test("blocks a production public form when Redis fails", async () => {
+  test("blocks a production public form when the rate limit store fails", async () => {
     const result = await enforceRateLimit(
       "203.0.113.7",
       { prefix: "public-form", max: 5, window: "1 m", requireAvailability: true },
@@ -132,10 +132,10 @@ describe("enforceRateLimit", () => {
     expect(result.remaining).toBe(0);
   });
 
-  test("fails open when the limiter throws (e.g. Redis outage)", async () => {
+  test("fails open when the limiter throws (e.g. a database outage)", async () => {
     const limiter: RateLimiter = {
       async limit() {
-        throw new Error("redis down");
+        throw new Error("database down");
       },
     };
     const result = await enforceRateLimit(
@@ -161,48 +161,125 @@ describe("retryAfterSeconds", () => {
   });
 });
 
-describe("assertUpstashConfig", () => {
-  test("does nothing outside production, even when inconsistent", () => {
-    expect(() =>
-      assertUpstashConfig({
-        url: "https://example.upstash.io",
-        token: undefined,
-        isProduction: false,
-      }),
-    ).not.toThrow();
+describe("enforceRateLimit counting in the database", () => {
+  const publicForm = {
+    prefix: "donations",
+    max: 5,
+    window: "1 m",
+    requireAvailability: true,
+  } as const;
+
+  type RpcResponse = { data: unknown; error: { code?: string; message?: string } | null };
+
+  function fakeDatabase(response: RpcResponse) {
+    const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+    const database = (): RateLimitDatabase => ({
+      client: {
+        rpc: async (fn: string, args: Record<string, unknown>) => {
+          calls.push({ fn, args });
+          return response;
+        },
+      } as unknown as RateLimitDatabase["client"],
+      secret: "test-service-role-key",
+    });
+    return { calls, database };
+  }
+
+  const errors = spyOn(console, "error").mockImplementation(() => {});
+  afterEach(() => errors.mockClear());
+
+  test("enforces nothing outside production and never touches the database", async () => {
+    const result = await enforceRateLimit("ip", publicForm, {
+      isProduction: false,
+      database: () => {
+        throw new Error("the database must not be reached outside production");
+      },
+    });
+    expect(result).toEqual({ ok: true });
   });
 
-  test("passes in production when both url and token are set", () => {
-    expect(() =>
-      assertUpstashConfig({ url: "https://example.upstash.io", token: "tok", isProduction: true }),
-    ).not.toThrow();
+  test("counts through rate_limit_hit in production and passes its answer on", async () => {
+    const { calls, database } = fakeDatabase({
+      data: { success: true, limit: 5, remaining: 4, reset: 120_000 },
+      error: null,
+    });
+
+    const result = await enforceRateLimit("203.0.113.7", publicForm, {
+      isProduction: true,
+      database,
+    });
+
+    expect(result).toEqual({ ok: true, limit: 5, remaining: 4, reset: 120_000 });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.fn).toBe("rate_limit_hit");
+    expect(calls[0]!.args).toMatchObject({ p_limit: 5, p_window_ms: 60_000 });
+    // The client's address is hashed before it is stored.
+    expect(String(calls[0]!.args.p_bucket)).toStartWith("donations:");
+    expect(String(calls[0]!.args.p_bucket)).not.toContain("203.0.113.7");
   });
 
-  test("passes in production when neither is set (rate limiting intentionally off)", () => {
-    expect(() =>
-      assertUpstashConfig({ url: undefined, token: undefined, isProduction: true }),
-    ).not.toThrow();
+  test("blocks the request when the database says the limit is reached", async () => {
+    const { database } = fakeDatabase({
+      data: { success: false, limit: 5, remaining: 0, reset: 120_000 },
+      error: null,
+    });
+
+    const result = await enforceRateLimit("ip", publicForm, { isProduction: true, database });
+
+    expect(result).toEqual({ ok: false, limit: 5, remaining: 0, reset: 120_000 });
   });
 
-  test("throws in production when only the url is set", () => {
-    expect(() =>
-      assertUpstashConfig({
-        url: "https://example.upstash.io",
-        token: undefined,
-        isProduction: true,
-      }),
-    ).toThrow(/Upstash misconfiguration/);
+  test("fails closed for a public form when the database errors, and logs only the code", async () => {
+    const { database } = fakeDatabase({
+      data: null,
+      error: { code: "PGRST202", message: "private alice@example.test" },
+    });
+
+    const result = await enforceRateLimit("ip", publicForm, { isProduction: true, database });
+
+    expect(result).toEqual({ ok: false, unavailable: true });
+    expect(errors).toHaveBeenCalledWith("Rate limit check failed", {
+      failClosed: true,
+      code: "PGRST202",
+    });
+    expect(JSON.stringify(errors.mock.calls)).not.toContain("alice@example.test");
   });
 
-  test("throws in production when only the token is set", () => {
-    expect(() => assertUpstashConfig({ url: undefined, token: "tok", isProduction: true })).toThrow(
-      /Upstash misconfiguration/,
+  test("fails open for other callers when the database errors", async () => {
+    const { database } = fakeDatabase({ data: null, error: { code: "57014" } });
+
+    const result = await enforceRateLimit(
+      "ip",
+      { prefix: "webhook", max: 100, window: "1 m" },
+      { isProduction: true, database },
     );
+
+    expect(result).toEqual({ ok: true });
   });
 
-  test("throws in production when the token is an empty string (counts as not set)", () => {
-    expect(() =>
-      assertUpstashConfig({ url: "https://example.upstash.io", token: "", isProduction: true }),
-    ).toThrow(/Upstash misconfiguration/);
+  test("treats an answer it cannot read as a failure of the store", async () => {
+    const { database } = fakeDatabase({ data: { success: "yes" }, error: null });
+
+    const result = await enforceRateLimit("ip", publicForm, { isProduction: true, database });
+
+    expect(result).toEqual({ ok: false, unavailable: true });
+  });
+
+  test("fails closed for a public form when the Supabase settings are missing", async () => {
+    const database = () => {
+      throw new Error("Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY");
+    };
+
+    expect(await enforceRateLimit("ip", publicForm, { isProduction: true, database })).toEqual({
+      ok: false,
+      unavailable: true,
+    });
+    expect(
+      await enforceRateLimit(
+        "ip",
+        { prefix: "status", max: 60, window: "1 m" },
+        { isProduction: true, database },
+      ),
+    ).toEqual({ ok: true });
   });
 });

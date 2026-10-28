@@ -16,6 +16,18 @@ Copy `.env.example` to `.env.local` and fill test-mode values only:
 Do not commit real keys. Do not put service role or provider secrets in `VITE_*`
 variables.
 
+In Production the public forms, donations included, need two things that local and
+preview builds do without:
+
+- **Turnstile**: `VITE_TURNSTILE_SITE_KEY`, read at build time, and
+  `TURNSTILE_SECRET_KEY`. Without the secret every submission is refused with 403.
+- **Rate limiting**: the `rate_limit_hit` function from migration
+  `20261028074500_postgres_rate_limit.sql`. Limits are counted in Supabase
+  Postgres, so no Redis service or variable is involved, but the migration must be
+  applied before the deployment that needs it (see Supabase below). Without it
+  every submission is refused with 503, and `/api/internal/readiness` reports
+  `RATE_LIMIT_UNAVAILABLE`.
+
 ## COD AlipayHK Sandbox Setup
 
 Direct COD is the processor for AlipayHK; Stripe remains card-only. Copy

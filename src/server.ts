@@ -1,17 +1,11 @@
 import { consumeLastCapturedError, withRequestErrorCapture } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { applySecurityHeaders } from "./lib/security-headers";
-import { assertUpstashConfigFromEnv } from "./lib/security/rate-limit.server";
 import { assertTurnstileConfigFromEnv } from "./lib/security/turnstile.server";
 
 // Fail the cold start loudly if the client/server Turnstile config is
 // inconsistent (secret-only -> 403 outage; site-key-only -> silent bypass).
 assertTurnstileConfigFromEnv();
-
-// Fail the cold start loudly if only one of the two Upstash env vars is set
-// (almost always a typo) -- a fully-unconfigured pair is allowed and only
-// logged once, lazily, on first use (see warnUpstashDisabledOnce).
-assertUpstashConfigFromEnv();
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;

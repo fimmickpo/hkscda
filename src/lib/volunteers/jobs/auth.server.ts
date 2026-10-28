@@ -12,7 +12,7 @@ export type MissingCronSecretReporterDeps = {
 
 /**
  * Returns a reporter that decides once, on its first call, whether to log the
- * missing-secret error. Mirrors `warnUpstashDisabledOnce`: the latch is set on
+ * missing-secret error. Mirrors `warnUnavailableOnce` in rate-limit.server.ts: the latch is set on
  * the first call regardless of environment, and the message is logged only if
  * the process is a production deployment at that moment.
  */

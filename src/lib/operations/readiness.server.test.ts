@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { initialAdoptionInstructionContent } from "../adoptionInstructions/content";
 import {
   checkReadiness,
@@ -24,12 +25,11 @@ function deps(overrides: Partial<ReadinessDeps> = {}): ReadinessDeps {
     }),
     readPublicAdoption: async () => page,
     readVolunteerJobs: async () => {},
+    readRateLimit: async () => {},
     config: {
       isProduction: true,
       turnstileSiteKey: "synthetic-site",
       turnstileSecret: "synthetic-secret",
-      upstashUrl: "https://synthetic.invalid",
-      upstashToken: "synthetic-token",
     },
     releaseSha: "synthetic-sha",
     correlationId: "synthetic-correlation",
@@ -122,15 +122,13 @@ describe("release readiness", () => {
     expect(JSON.stringify(result)).not.toContain("private payload");
   });
 
-  test("missing production abuse settings block readiness even when both pairs are absent", async () => {
+  test("missing production Turnstile settings block readiness", async () => {
     const result = await checkReadiness(
       deps({
         config: {
           isProduction: true,
           turnstileSiteKey: undefined,
           turnstileSecret: undefined,
-          upstashUrl: undefined,
-          upstashToken: undefined,
         },
       }),
     );
@@ -141,10 +139,32 @@ describe("release readiness", () => {
     });
   });
 
-  test("local fixture can omit external abuse services", async () => {
+  for (const code of ["PGRST202", "42883", "42501"]) {
+    test(`a rate limit store that fails with ${code} blocks readiness without leaking details`, async () => {
+      const result = await checkReadiness(
+        deps({
+          readRateLimit: async () => {
+            throw { code, message: "private alice@example.test" };
+          },
+        }),
+      );
+      expect(result.state).toBe("unavailable");
+      expect(result.features.antiAbuse).toEqual({
+        state: "unavailable",
+        code: "RATE_LIMIT_UNAVAILABLE",
+        causeCode: code,
+      });
+      expect(JSON.stringify(result)).not.toContain("alice@example.test");
+    });
+  }
+
+  test("local fixture can omit external abuse services and never probes the rate limit store", async () => {
     const result = await checkReadiness(
       deps({
         config: { isProduction: false },
+        readRateLimit: async () => {
+          throw new Error("must not be called outside production");
+        },
       }),
     );
     expect(result.state).toBe("ready");
@@ -226,6 +246,40 @@ test("private readiness alerts are rate limited and recovery is visible without 
   report = await checkReadiness(deps());
   expect((await handler(request())).status).toBe(200);
   expect(events.at(-1)?.state).toBe("ready");
+});
+
+describe("the rate limit probe", () => {
+  function probe(response: { error: { code: string } | null }) {
+    const calls: Array<{ fn: string; args: unknown }> = [];
+    const client = {
+      rpc: async (fn: string, args: unknown) => {
+        calls.push({ fn, args });
+        return response;
+      },
+    } as unknown as SupabaseClient;
+    return { calls, readRateLimit: createReadinessDeps({}, client).readRateLimit };
+  }
+
+  test("takes the refusal of a limit of 0 as proof that the function can be called", async () => {
+    const { calls, readRateLimit } = probe({ error: { code: "22023" } });
+    await expect(readRateLimit()).resolves.toBeUndefined();
+    expect(calls).toEqual([
+      {
+        fn: "rate_limit_hit",
+        args: { p_bucket: "readiness-probe", p_limit: 0, p_window_ms: 60_000 },
+      },
+    ]);
+  });
+
+  test("also takes a counted request as proof", async () => {
+    await expect(probe({ error: null }).readRateLimit()).resolves.toBeUndefined();
+  });
+
+  for (const code of ["PGRST202", "42883", "42501"]) {
+    test(`rejects when the database answers ${code}`, async () => {
+      await expect(probe({ error: { code } }).readRateLimit()).rejects.toMatchObject({ code });
+    });
+  }
 });
 
 test("CMS readiness adapter reads only the published revision and preserves provider error code", async () => {
