@@ -32,8 +32,7 @@ export async function loadPublicPaymentMethods(
     const parsed = publicPaymentMethodRowSchema.safeParse(raw);
     if (
       !parsed.success ||
-      ((parsed.data.method === "fps" || parsed.data.method === "payme") &&
-        !hasPaymentInstructionDetails(parsed.data.details))
+      (parsed.data.method === "fps" && !hasPaymentInstructionDetails(parsed.data.details))
     ) {
       return { state: "unavailable", methods: [] };
     }

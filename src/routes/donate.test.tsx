@@ -378,3 +378,38 @@ test("the consent legend follows the page language", async () => {
   expect(html).toContain("收據及通訊同意");
   expect(html).not.toContain("Receipts and communication consent");
 });
+
+test("the custom amount field takes whole dollars from HK$10 outside a development build", async () => {
+  const { DonatePage } = await import("./donate");
+
+  // bun test is not a development build, so this is the field as donors get it.
+  const html = renderToStaticMarkup(
+    <DonatePage
+      initialSlots={[]}
+      initialMethods={ALL_METHODS}
+      initialSearch={{}}
+      checkoutEnabled
+    />,
+  );
+  const field = html.match(/<input[^>]*id="donation-custom-amount"[^>]*>/)?.[0] ?? "";
+
+  expect(field).toContain('type="number"');
+  expect(field).toContain('min="10"');
+  expect(field).toContain('step="1"');
+});
+
+test("mobile payme response redirects to appLink (checkoutExperience is wap below 768px)", async () => {
+  // checkoutExperienceFromViewport drives the mobile/desktop branch in handleSubmit
+  // (see checkoutDestination): when innerWidth < 768 the experience is "wap" and PayMe opens
+  // through the app link; otherwise the donor goes to the PayCode page. Verify the viewport
+  // threshold matches the spec.
+  const { checkoutExperienceFromViewport } = await import("../lib/donations/checkoutExperience");
+
+  // Any width below 768 must produce "wap" (the branch that sets location.href = appLink).
+  expect(checkoutExperienceFromViewport(375)).toBe("wap");
+  expect(checkoutExperienceFromViewport(767)).toBe("wap");
+
+  // Any width at or above 768 must produce "desktop_qr" (the PayCode page branch).
+  expect(checkoutExperienceFromViewport(768)).toBe("desktop_qr");
+  expect(checkoutExperienceFromViewport(1440)).toBe("desktop_qr");
+});

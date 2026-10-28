@@ -13,6 +13,7 @@
       "claude/session-development-c8b184": false,
       "followup/pledgereview-pager-and-migration-docs": false,
       "feat/fostered-animal-public-visibility": false,
+      "feat/payme-gateway": false,
       "codex/isolated-test-db-20261025": false,
       "codex/admin-volunteer-settings-20260913": false,
       "fix/public-animal-gallery-compat": false,

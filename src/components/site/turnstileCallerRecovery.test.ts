@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
+import { discardCheckoutIntent, selectCheckoutIntent } from "../../lib/donations/checkoutIntent";
+
 const cases = [
   ["donation", "src/routes/donate.tsx", "handleSubmit"],
   ["group enquiry", "src/components/site/volunteer/GroupEnquiryForm.tsx", "handleSubmit"],
@@ -36,6 +38,7 @@ for (const [name, path, functionName] of cases) {
       attempts++;
       throw new Error("Synthetic submit failure");
     };
+    const sessionStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
     const scope: Record<string, unknown> = {
       checkoutEnabled: true,
       turnstileEnabled: true,
@@ -76,9 +79,12 @@ for (const [name, path, functionName] of cases) {
           randomUUID: () => "11111111-2222-4333-8444-555555555555",
           subtle: { digest: async () => new Uint8Array(32).buffer },
         },
-        sessionStorage: { getItem: () => null, setItem: () => {} },
+        sessionStorage,
       },
       checkoutIntentRef: { current: null },
+      selectCheckoutIntent,
+      discardCheckoutIntent,
+      browserCheckoutIntentStorage: () => sessionStorage,
       TextEncoder,
       Uint8Array,
       Array,

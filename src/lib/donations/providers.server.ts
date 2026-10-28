@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 
 import { createCodAlipayHkCheckout } from "./cod-provider.server";
+import { createPayMeCheckout } from "./payme-provider.server";
 import { getAppUrl } from "../appUrl.server";
 import { getPayPalConfig, getStripeConfig } from "./config.server";
 import type { CheckoutProviderInput, CheckoutProviderResult } from "./service";
@@ -223,5 +224,6 @@ export function createPaymentProviders() {
     createStripeCheckout,
     createPayPalOrder,
     createCodAlipayHkCheckout,
+    createPayMeCheckout,
   };
 }

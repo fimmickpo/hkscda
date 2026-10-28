@@ -133,9 +133,11 @@ import { Route as ApiVolunteerOperationsRouteImport } from './routes/api/volunte
 import { Route as ApiVolunteerPolicyRouteImport } from './routes/api/volunteer/policy'
 import { Route as ApiVolunteerRegistrationsRouteImport } from './routes/api/volunteer/registrations'
 import { Route as ApiWebhooksCodRouteImport } from './routes/api/webhooks/cod'
+import { Route as ApiWebhooksPaymeRouteImport } from './routes/api/webhooks/payme'
 import { Route as ApiWebhooksPaypalRouteImport } from './routes/api/webhooks/paypal'
 import { Route as ApiWebhooksResendRouteImport } from './routes/api/webhooks/resend'
 import { Route as ApiWebhooksStripeRouteImport } from './routes/api/webhooks/stripe'
+import { Route as DonatePaymeDonationIdRouteImport } from './routes/donate_.payme.$donationId'
 import { Route as SponsorsStatusTokenRouteImport } from './routes/sponsors_.status.$token'
 import { Route as VolunteerStatusTokenRouteImport } from './routes/volunteer/status.$token'
 import { Route as AdminAnimalsIdEditRouteImport } from './routes/admin/animals/$id.edit'
@@ -200,6 +202,8 @@ import { Route as ApiAdminVolunteersReviewerBulkRouteImport } from './routes/api
 import { Route as ApiAdminVolunteersTasksRouteImport } from './routes/api/admin/volunteers/tasks'
 import { Route as ApiAdoptionApplicationsPhotoUploadUrlsRouteImport } from './routes/api/adoption/applications/photo-upload-urls'
 import { Route as ApiAdoptionStatusTokenRouteImport } from './routes/api/adoption/status/$token'
+import { Route as ApiDonationsDonationIdCancelRouteImport } from './routes/api/donations/$donationId/cancel'
+import { Route as ApiDonationsDonationIdPaycodeRouteImport } from './routes/api/donations/$donationId/paycode'
 import { Route as ApiDonationsDonationIdStatusRouteImport } from './routes/api/donations/$donationId/status'
 import { Route as ApiSponsorshipsPledgesProofUploadUrlRouteImport } from './routes/api/sponsorships/pledges/proof-upload-url'
 import { Route as ApiSponsorshipsStatusTokenRouteImport } from './routes/api/sponsorships/status/$token'
@@ -933,6 +937,11 @@ const ApiWebhooksCodRoute = ApiWebhooksCodRouteImport.update({
   path: '/api/webhooks/cod',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWebhooksPaymeRoute = ApiWebhooksPaymeRouteImport.update({
+  id: '/api/webhooks/payme',
+  path: '/api/webhooks/payme',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWebhooksPaypalRoute = ApiWebhooksPaypalRouteImport.update({
   id: '/api/webhooks/paypal',
   path: '/api/webhooks/paypal',
@@ -946,6 +955,11 @@ const ApiWebhooksResendRoute = ApiWebhooksResendRouteImport.update({
 const ApiWebhooksStripeRoute = ApiWebhooksStripeRouteImport.update({
   id: '/api/webhooks/stripe',
   path: '/api/webhooks/stripe',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DonatePaymeDonationIdRoute = DonatePaymeDonationIdRouteImport.update({
+  id: '/donate_/payme/$donationId',
+  path: '/donate/payme/$donationId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SponsorsStatusTokenRoute = SponsorsStatusTokenRouteImport.update({
@@ -1311,6 +1325,18 @@ const ApiAdoptionStatusTokenRoute = ApiAdoptionStatusTokenRouteImport.update({
   path: '/api/adoption/status/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDonationsDonationIdCancelRoute =
+  ApiDonationsDonationIdCancelRouteImport.update({
+    id: '/$donationId/cancel',
+    path: '/$donationId/cancel',
+    getParentRoute: () => ApiDonationsRoute,
+  } as any)
+const ApiDonationsDonationIdPaycodeRoute =
+  ApiDonationsDonationIdPaycodeRouteImport.update({
+    id: '/$donationId/paycode',
+    path: '/$donationId/paycode',
+    getParentRoute: () => ApiDonationsRoute,
+  } as any)
 const ApiDonationsDonationIdStatusRoute =
   ApiDonationsDonationIdStatusRouteImport.update({
     id: '/$donationId/status',
@@ -1987,9 +2013,11 @@ export interface FileRoutesByFullPath {
   '/api/volunteer/policy': typeof ApiVolunteerPolicyRoute
   '/api/volunteer/registrations': typeof ApiVolunteerRegistrationsRoute
   '/api/webhooks/cod': typeof ApiWebhooksCodRoute
+  '/api/webhooks/payme': typeof ApiWebhooksPaymeRoute
   '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
+  '/donate/payme/$donationId': typeof DonatePaymeDonationIdRoute
   '/sponsors/status/$token': typeof SponsorsStatusTokenRoute
   '/volunteer/status/$token': typeof VolunteerStatusTokenRoute
   '/admin/applications/': typeof AdminApplicationsIndexRoute
@@ -2056,6 +2084,8 @@ export interface FileRoutesByFullPath {
   '/api/admin/volunteers/tasks': typeof ApiAdminVolunteersTasksRoute
   '/api/adoption/applications/photo-upload-urls': typeof ApiAdoptionApplicationsPhotoUploadUrlsRoute
   '/api/adoption/status/$token': typeof ApiAdoptionStatusTokenRoute
+  '/api/donations/$donationId/cancel': typeof ApiDonationsDonationIdCancelRoute
+  '/api/donations/$donationId/paycode': typeof ApiDonationsDonationIdPaycodeRoute
   '/api/donations/$donationId/status': typeof ApiDonationsDonationIdStatusRoute
   '/api/sponsorships/pledges/proof-upload-url': typeof ApiSponsorshipsPledgesProofUploadUrlRoute
   '/api/sponsorships/status/$token': typeof ApiSponsorshipsStatusTokenRoute
@@ -2272,9 +2302,11 @@ export interface FileRoutesByTo {
   '/api/volunteer/policy': typeof ApiVolunteerPolicyRoute
   '/api/volunteer/registrations': typeof ApiVolunteerRegistrationsRoute
   '/api/webhooks/cod': typeof ApiWebhooksCodRoute
+  '/api/webhooks/payme': typeof ApiWebhooksPaymeRoute
   '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
+  '/donate/payme/$donationId': typeof DonatePaymeDonationIdRoute
   '/sponsors/status/$token': typeof SponsorsStatusTokenRoute
   '/volunteer/status/$token': typeof VolunteerStatusTokenRoute
   '/admin/applications': typeof AdminApplicationsIndexRoute
@@ -2341,6 +2373,8 @@ export interface FileRoutesByTo {
   '/api/admin/volunteers/tasks': typeof ApiAdminVolunteersTasksRoute
   '/api/adoption/applications/photo-upload-urls': typeof ApiAdoptionApplicationsPhotoUploadUrlsRoute
   '/api/adoption/status/$token': typeof ApiAdoptionStatusTokenRoute
+  '/api/donations/$donationId/cancel': typeof ApiDonationsDonationIdCancelRoute
+  '/api/donations/$donationId/paycode': typeof ApiDonationsDonationIdPaycodeRoute
   '/api/donations/$donationId/status': typeof ApiDonationsDonationIdStatusRoute
   '/api/sponsorships/pledges/proof-upload-url': typeof ApiSponsorshipsPledgesProofUploadUrlRoute
   '/api/sponsorships/status/$token': typeof ApiSponsorshipsStatusTokenRoute
@@ -2559,9 +2593,11 @@ export interface FileRoutesById {
   '/api/volunteer/policy': typeof ApiVolunteerPolicyRoute
   '/api/volunteer/registrations': typeof ApiVolunteerRegistrationsRoute
   '/api/webhooks/cod': typeof ApiWebhooksCodRoute
+  '/api/webhooks/payme': typeof ApiWebhooksPaymeRoute
   '/api/webhooks/paypal': typeof ApiWebhooksPaypalRoute
   '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/api/webhooks/stripe': typeof ApiWebhooksStripeRoute
+  '/donate_/payme/$donationId': typeof DonatePaymeDonationIdRoute
   '/sponsors_/status/$token': typeof SponsorsStatusTokenRoute
   '/volunteer/status/$token': typeof VolunteerStatusTokenRoute
   '/admin/applications/': typeof AdminApplicationsIndexRoute
@@ -2628,6 +2664,8 @@ export interface FileRoutesById {
   '/api/admin/volunteers/tasks': typeof ApiAdminVolunteersTasksRoute
   '/api/adoption/applications/photo-upload-urls': typeof ApiAdoptionApplicationsPhotoUploadUrlsRoute
   '/api/adoption/status/$token': typeof ApiAdoptionStatusTokenRoute
+  '/api/donations/$donationId/cancel': typeof ApiDonationsDonationIdCancelRoute
+  '/api/donations/$donationId/paycode': typeof ApiDonationsDonationIdPaycodeRoute
   '/api/donations/$donationId/status': typeof ApiDonationsDonationIdStatusRoute
   '/api/sponsorships/pledges/proof-upload-url': typeof ApiSponsorshipsPledgesProofUploadUrlRoute
   '/api/sponsorships/status/$token': typeof ApiSponsorshipsStatusTokenRoute
@@ -2847,9 +2885,11 @@ export interface FileRouteTypes {
     | '/api/volunteer/policy'
     | '/api/volunteer/registrations'
     | '/api/webhooks/cod'
+    | '/api/webhooks/payme'
     | '/api/webhooks/paypal'
     | '/api/webhooks/resend'
     | '/api/webhooks/stripe'
+    | '/donate/payme/$donationId'
     | '/sponsors/status/$token'
     | '/volunteer/status/$token'
     | '/admin/applications/'
@@ -2916,6 +2956,8 @@ export interface FileRouteTypes {
     | '/api/admin/volunteers/tasks'
     | '/api/adoption/applications/photo-upload-urls'
     | '/api/adoption/status/$token'
+    | '/api/donations/$donationId/cancel'
+    | '/api/donations/$donationId/paycode'
     | '/api/donations/$donationId/status'
     | '/api/sponsorships/pledges/proof-upload-url'
     | '/api/sponsorships/status/$token'
@@ -3132,9 +3174,11 @@ export interface FileRouteTypes {
     | '/api/volunteer/policy'
     | '/api/volunteer/registrations'
     | '/api/webhooks/cod'
+    | '/api/webhooks/payme'
     | '/api/webhooks/paypal'
     | '/api/webhooks/resend'
     | '/api/webhooks/stripe'
+    | '/donate/payme/$donationId'
     | '/sponsors/status/$token'
     | '/volunteer/status/$token'
     | '/admin/applications'
@@ -3201,6 +3245,8 @@ export interface FileRouteTypes {
     | '/api/admin/volunteers/tasks'
     | '/api/adoption/applications/photo-upload-urls'
     | '/api/adoption/status/$token'
+    | '/api/donations/$donationId/cancel'
+    | '/api/donations/$donationId/paycode'
     | '/api/donations/$donationId/status'
     | '/api/sponsorships/pledges/proof-upload-url'
     | '/api/sponsorships/status/$token'
@@ -3418,9 +3464,11 @@ export interface FileRouteTypes {
     | '/api/volunteer/policy'
     | '/api/volunteer/registrations'
     | '/api/webhooks/cod'
+    | '/api/webhooks/payme'
     | '/api/webhooks/paypal'
     | '/api/webhooks/resend'
     | '/api/webhooks/stripe'
+    | '/donate_/payme/$donationId'
     | '/sponsors_/status/$token'
     | '/volunteer/status/$token'
     | '/admin/applications/'
@@ -3487,6 +3535,8 @@ export interface FileRouteTypes {
     | '/api/admin/volunteers/tasks'
     | '/api/adoption/applications/photo-upload-urls'
     | '/api/adoption/status/$token'
+    | '/api/donations/$donationId/cancel'
+    | '/api/donations/$donationId/paycode'
     | '/api/donations/$donationId/status'
     | '/api/sponsorships/pledges/proof-upload-url'
     | '/api/sponsorships/status/$token'
@@ -3677,9 +3727,11 @@ export interface RootRouteChildren {
   ApiVolunteerPolicyRoute: typeof ApiVolunteerPolicyRoute
   ApiVolunteerRegistrationsRoute: typeof ApiVolunteerRegistrationsRoute
   ApiWebhooksCodRoute: typeof ApiWebhooksCodRoute
+  ApiWebhooksPaymeRoute: typeof ApiWebhooksPaymeRoute
   ApiWebhooksPaypalRoute: typeof ApiWebhooksPaypalRoute
   ApiWebhooksResendRoute: typeof ApiWebhooksResendRoute
   ApiWebhooksStripeRoute: typeof ApiWebhooksStripeRoute
+  DonatePaymeDonationIdRoute: typeof DonatePaymeDonationIdRoute
   SponsorsStatusTokenRoute: typeof SponsorsStatusTokenRoute
   ApiInternshipsIndexRoute: typeof ApiInternshipsIndexRoute
   AdminAnimalsIdEditRoute: typeof AdminAnimalsIdEditRoute
@@ -4624,6 +4676,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiWebhooksCodRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/webhooks/payme': {
+      id: '/api/webhooks/payme'
+      path: '/api/webhooks/payme'
+      fullPath: '/api/webhooks/payme'
+      preLoaderRoute: typeof ApiWebhooksPaymeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/webhooks/paypal': {
       id: '/api/webhooks/paypal'
       path: '/api/webhooks/paypal'
@@ -4643,6 +4702,13 @@ declare module '@tanstack/react-router' {
       path: '/api/webhooks/stripe'
       fullPath: '/api/webhooks/stripe'
       preLoaderRoute: typeof ApiWebhooksStripeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/donate_/payme/$donationId': {
+      id: '/donate_/payme/$donationId'
+      path: '/donate/payme/$donationId'
+      fullPath: '/donate/payme/$donationId'
+      preLoaderRoute: typeof DonatePaymeDonationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sponsors_/status/$token': {
@@ -5092,6 +5158,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/adoption/status/$token'
       preLoaderRoute: typeof ApiAdoptionStatusTokenRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/donations/$donationId/cancel': {
+      id: '/api/donations/$donationId/cancel'
+      path: '/$donationId/cancel'
+      fullPath: '/api/donations/$donationId/cancel'
+      preLoaderRoute: typeof ApiDonationsDonationIdCancelRouteImport
+      parentRoute: typeof ApiDonationsRoute
+    }
+    '/api/donations/$donationId/paycode': {
+      id: '/api/donations/$donationId/paycode'
+      path: '/$donationId/paycode'
+      fullPath: '/api/donations/$donationId/paycode'
+      preLoaderRoute: typeof ApiDonationsDonationIdPaycodeRouteImport
+      parentRoute: typeof ApiDonationsRoute
     }
     '/api/donations/$donationId/status': {
       id: '/api/donations/$donationId/status'
@@ -5877,10 +5957,14 @@ const AdminVolunteersRouteWithChildren = AdminVolunteersRoute._addFileChildren(
 )
 
 interface ApiDonationsRouteChildren {
+  ApiDonationsDonationIdCancelRoute: typeof ApiDonationsDonationIdCancelRoute
+  ApiDonationsDonationIdPaycodeRoute: typeof ApiDonationsDonationIdPaycodeRoute
   ApiDonationsDonationIdStatusRoute: typeof ApiDonationsDonationIdStatusRoute
 }
 
 const ApiDonationsRouteChildren: ApiDonationsRouteChildren = {
+  ApiDonationsDonationIdCancelRoute: ApiDonationsDonationIdCancelRoute,
+  ApiDonationsDonationIdPaycodeRoute: ApiDonationsDonationIdPaycodeRoute,
   ApiDonationsDonationIdStatusRoute: ApiDonationsDonationIdStatusRoute,
 }
 
@@ -6622,9 +6706,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiVolunteerPolicyRoute: ApiVolunteerPolicyRoute,
   ApiVolunteerRegistrationsRoute: ApiVolunteerRegistrationsRoute,
   ApiWebhooksCodRoute: ApiWebhooksCodRoute,
+  ApiWebhooksPaymeRoute: ApiWebhooksPaymeRoute,
   ApiWebhooksPaypalRoute: ApiWebhooksPaypalRoute,
   ApiWebhooksResendRoute: ApiWebhooksResendRoute,
   ApiWebhooksStripeRoute: ApiWebhooksStripeRoute,
+  DonatePaymeDonationIdRoute: DonatePaymeDonationIdRoute,
   SponsorsStatusTokenRoute: SponsorsStatusTokenRoute,
   ApiInternshipsIndexRoute: ApiInternshipsIndexRoute,
   AdminAnimalsIdEditRoute: AdminAnimalsIdEditRoute,

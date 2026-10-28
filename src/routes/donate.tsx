@@ -35,8 +35,17 @@ import {
   trackDonationEvent,
   type DonationCheckoutSnapshot,
 } from "../lib/donations/analytics";
+import { checkoutDestination } from "../lib/donations/checkoutDestination";
 import { pollDonationSucceeded } from "../lib/donations/publicStatus";
 import { checkoutExperienceFromViewport } from "../lib/donations/checkoutExperience";
+import { customAmountStep } from "../lib/donations/customAmount";
+import {
+  browserCheckoutIntentStorage,
+  discardCancelledPayMeIntent,
+  discardCheckoutIntent,
+  selectCheckoutIntent,
+  type CheckoutIntent,
+} from "../lib/donations/checkoutIntent";
 import {
   centsToHkd,
   type CheckoutExperience,
@@ -72,7 +81,7 @@ type ManualResult = {
   donationId: string;
   reference: string;
   instructions: {
-    method: "fps" | "payme";
+    method: "fps";
     label: string;
     payableTo: string;
     identifier: string;
@@ -83,8 +92,16 @@ type ManualResult = {
 type RedirectResult = {
   kind: "redirect";
   donationId: string;
-  provider: "stripe" | "paypal" | "cod";
+  provider: "stripe" | "paypal" | "cod" | "payme";
   url: string;
+};
+
+type PayMeResult = {
+  kind: "payme";
+  donationId: string;
+  paymentRequestId: string;
+  webLink: string;
+  appLink: string;
 };
 
 type DonationReturnState = "pending" | "confirmed" | "unavailable";
@@ -133,7 +150,7 @@ const copy = {
     manualVerification:
       "原付款指示已撤回或暫時未能核實。請聯絡職員，並提供以下參考編號；請勿沿用舊付款資料。",
     reference: "付款參考編號",
-    submitError: "暫時未能建立捐款，請稍後再試。",
+    submitError: "暫時未能建立捐款，請稍後再試，或選擇其他付款方式。",
     checkoutRecoveryRequired: "付款建立結果未能確認。請聯絡職員核實，暫時不要重複付款。",
     recoveryReference: "查詢編號",
     donorName: "姓名",
@@ -179,7 +196,8 @@ const copy = {
     manualVerification:
       "The payment instructions were withdrawn or cannot be verified. Contact our team with the reference below; do not reuse old payment details.",
     reference: "Payment reference",
-    submitError: "Donation could not be created. Please try again later.",
+    submitError:
+      "Donation could not be created. Please try again later or choose another payment method.",
     checkoutRecoveryRequired:
       "We cannot confirm the checkout outcome. Please contact our team before trying to pay again.",
     recoveryReference: "Reference",
@@ -334,7 +352,7 @@ export function DonatePage({
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [returnState, setReturnState] = useState<DonationReturnState | null>(null);
-  const checkoutIntentRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const checkoutIntentRef = useRef<CheckoutIntent | null>(null);
   const availableMethods = useMemo(
     () =>
       initialMethods.filter(
@@ -358,13 +376,12 @@ export function DonatePage({
 
   useEffect(() => {
     if (!search.donation || returnState !== "confirmed") return;
-    checkoutIntentRef.current = null;
-    try {
-      window.sessionStorage.removeItem("hkscda-donation-checkout-intent");
-    } catch {
-      // Storage may be unavailable.
-    }
+    discardCheckoutIntent(checkoutIntentRef, browserCheckoutIntentStorage());
   }, [search.donation, returnState]);
+  useEffect(() => {
+    if (!search.donation || search.status !== "cancelled") return;
+    discardCancelledPayMeIntent(checkoutIntentRef, browserCheckoutIntentStorage());
+  }, [search.donation, search.status]);
   useEffect(() => {
     const donationId = search.donation;
     if (!donationId || !isPendingCheckoutReturn(search.status)) {
@@ -439,26 +456,12 @@ export function DonatePage({
       const fingerprint = Array.from(new Uint8Array(fingerprintBytes), (byte) =>
         byte.toString(16).padStart(2, "0"),
       ).join("");
-      let intent = checkoutIntentRef.current;
-      try {
-        const saved = JSON.parse(
-          window.sessionStorage.getItem("hkscda-donation-checkout-intent") ?? "null",
-        ) as { fingerprint?: string; key?: string } | null;
-        if (saved?.fingerprint === fingerprint && saved.key) {
-          intent = { fingerprint, key: saved.key };
-        }
-      } catch {
-        // Session storage can be unavailable; the in-memory key still covers retries.
-      }
-      if (!intent || intent.fingerprint !== fingerprint) {
-        intent = { fingerprint, key: window.crypto.randomUUID() };
-      }
-      checkoutIntentRef.current = intent;
-      try {
-        window.sessionStorage.setItem("hkscda-donation-checkout-intent", JSON.stringify(intent));
-      } catch {
-        // Keep the in-memory key when storage is unavailable.
-      }
+      const intent = selectCheckoutIntent({
+        fingerprint,
+        method,
+        ref: checkoutIntentRef,
+        storage: browserCheckoutIntentStorage(),
+      });
 
       const response = await fetch("/api/donations", {
         method: "POST",
@@ -486,7 +489,7 @@ export function DonatePage({
         }
         throw new Error("Donation request failed");
       }
-      const data = (await response.json()) as ManualResult | RedirectResult;
+      const data = (await response.json()) as ManualResult | RedirectResult | PayMeResult;
 
       if (attribution) {
         saveCheckoutSnapshot(data.donationId, {
@@ -506,17 +509,14 @@ export function DonatePage({
         }
       }
 
-      if (data.kind === "redirect") {
-        window.location.href = data.url;
+      if (data.kind === "manual") {
+        discardCheckoutIntent(checkoutIntentRef, browserCheckoutIntentStorage());
+        setManualResult(data);
         return;
       }
-      checkoutIntentRef.current = null;
-      try {
-        window.sessionStorage.removeItem("hkscda-donation-checkout-intent");
-      } catch {
-        // Storage may be unavailable.
-      }
-      setManualResult(data);
+      // A PayMe desktop checkout leaves for the PayCode page, which keeps the saved checkout until
+      // it learns how the payment ended.
+      window.location.href = checkoutDestination(data, checkoutExperience);
     } catch {
       if (turnstileEnabled) setTurnstileResetKey((key) => key + 1);
       setError(t.submitError);
@@ -667,7 +667,7 @@ export function DonatePage({
                     aria-describedby={undefined}
                     type="number"
                     min="10"
-                    step="1"
+                    step={customAmountStep(import.meta.env.DEV)}
                     value={customAmount}
                     onChange={(event) => setCustomAmount(event.target.value)}
                     className="w-full rounded-xl border border-[var(--color-border)] bg-white px-4 py-3 text-sm focus:border-[var(--color-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"

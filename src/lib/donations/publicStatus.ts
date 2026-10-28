@@ -39,7 +39,7 @@ function isPublicDonationStatus(value: unknown): value is PublicDonationStatus {
   );
 }
 
-async function loadDonationStatus(
+export async function loadDonationStatus(
   donationId: string,
   { signal }: StatusLoadOptions = {},
 ): Promise<PublicDonationStatusResponse> {
