@@ -53,6 +53,7 @@ import {
   type DonationPurpose,
 } from "../lib/donations/domain";
 import { BrandLogo } from "../components/site/BrandLogo";
+import { donationSubmitFailureMessage } from "../components/site/donationSubmitFailureCopy";
 import { TurnstileWidget, turnstileEnabled } from "../components/site/TurnstileWidget";
 
 export const Route = createFileRoute("/donate")({
@@ -485,6 +486,13 @@ export function DonatePage({
               ? t.checkoutRecoveryRequired + " " + t.recoveryReference + ": " + failure.donationId
               : t.checkoutRecoveryRequired,
           );
+          return;
+        }
+        const refusal = donationSubmitFailureMessage(language, response.status, failure?.code);
+        if (refusal) {
+          // The server has used up the verification token; the widget gets a fresh one.
+          if (turnstileEnabled) setTurnstileResetKey((key) => key + 1);
+          setError(refusal);
           return;
         }
         throw new Error("Donation request failed");
