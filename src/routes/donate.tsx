@@ -38,6 +38,7 @@ import {
 import { checkoutDestination } from "../lib/donations/checkoutDestination";
 import { pollDonationSucceeded } from "../lib/donations/publicStatus";
 import { checkoutExperienceFromViewport } from "../lib/donations/checkoutExperience";
+import { customAmountStep } from "../lib/donations/customAmount";
 import {
   browserCheckoutIntentStorage,
   discardCancelledPayMeIntent,
@@ -666,7 +667,7 @@ export function DonatePage({
                     aria-describedby={undefined}
                     type="number"
                     min="10"
-                    step="1"
+                    step={customAmountStep(import.meta.env.DEV)}
                     value={customAmount}
                     onChange={(event) => setCustomAmount(event.target.value)}
                     className="w-full rounded-xl border border-[var(--color-border)] bg-white px-4 py-3 text-sm focus:border-[var(--color-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"

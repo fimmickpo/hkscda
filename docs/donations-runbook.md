@@ -219,24 +219,32 @@ names the missing variable.
 ### 3. Enter an amount with cents
 
 The sandbox chooses what to simulate from the cents of the amount (the table in
-the next section), but the donation form only takes whole dollars: the custom
-amount field has `step="1"`, so the browser refuses to submit `288.81`. For a
-test, lift the limit on the page from the browser console on `/donate`, then type
-the amount:
+the next section). In a development build (`bun run dev`) the custom amount field
+takes cents, up to two decimals, so type `10.81` straight into it. A production
+build, such as a Vercel preview, only takes whole dollars (`step="1"`), and the
+browser refuses to submit `10.81`. There, lift the limit on the page from the
+browser console on `/donate`, then type the amount:
 
 ```js
 document.getElementById("donation-custom-amount").step = "any";
 ```
 
-A reload puts the limit back. The server accepts any amount from HK$10 to
-HK$10,000 in cents, so no code change is needed. A whole-dollar amount needs no
-workaround: the sandbox does nothing with it, so the PayCode just counts down and
-expires, as it does for `.80`.
+A reload puts the limit back. Chrome asks you to type `allow pasting` in the
+console before it accepts pasted code.
+
+The site takes HK$10 to HK$10,000 for every payment method: the field has
+`min="10"` and the server rule is `amountCents` in
+`src/lib/donations/domain.ts`. So `10.81` is the smallest convenient test amount.
+The floor is the site's, not PayMe's: the HSBC material in `docs/payme` states no
+minimum for `totalAmount` (an invalid amount is rejected with `EA017`), and HSBC's
+own Postman example creates a HK$3.77 request. A whole-dollar amount needs no
+cents at all: the sandbox does nothing with it, so the PayCode just counts down
+and expires, as it does for `.80`.
 
 ### 4. Run a payment
 
 1. On `/donate`, choose the General or Medical purpose and PayMe, and enter an
-   amount ending in `.81`.
+   amount ending in `.81`, such as `10.81`.
 2. On a desktop the form moves to `/donate/payme/<donationId>`, which shows the
    PayCode QR code, the amount and a countdown. There is nothing to scan: the
    sandbox pays a `.81` PayCode by itself.
@@ -253,10 +261,10 @@ https address and restart.
 ## PayMe Sandbox Test Amounts
 
 The PayMe sandbox decides what to simulate from the cent part of the amount, so
-the donation has to end in one of these. The donation form only takes whole
-dollars; step 3 of "PayMe Local Testing" shows how to enter cents for a test.
-They come from HSBC's test pack (`docs/payme/PayMe_APIs_Test_Pack_v1.8.xlsx`,
-"Sandbox Test Summary"):
+the donation has to end in one of these. A development build of the donation form
+takes cents; step 3 of "PayMe Local Testing" covers entering them and what a
+production build needs. They come from HSBC's test pack
+(`docs/payme/PayMe_APIs_Test_Pack_v1.8.xlsx`, "Sandbox Test Summary"):
 
 | Amount ends in | The sandbox                                      | What the donor sees on a desktop                                                                               |
 | -------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |

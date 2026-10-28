@@ -379,6 +379,25 @@ test("the consent legend follows the page language", async () => {
   expect(html).not.toContain("Receipts and communication consent");
 });
 
+test("the custom amount field takes whole dollars from HK$10 outside a development build", async () => {
+  const { DonatePage } = await import("./donate");
+
+  // bun test is not a development build, so this is the field as donors get it.
+  const html = renderToStaticMarkup(
+    <DonatePage
+      initialSlots={[]}
+      initialMethods={ALL_METHODS}
+      initialSearch={{}}
+      checkoutEnabled
+    />,
+  );
+  const field = html.match(/<input[^>]*id="donation-custom-amount"[^>]*>/)?.[0] ?? "";
+
+  expect(field).toContain('type="number"');
+  expect(field).toContain('min="10"');
+  expect(field).toContain('step="1"');
+});
+
 test("mobile payme response redirects to appLink (checkoutExperience is wap below 768px)", async () => {
   // checkoutExperienceFromViewport drives the mobile/desktop branch in handleSubmit
   // (see checkoutDestination): when innerWidth < 768 the experience is "wap" and PayMe opens
