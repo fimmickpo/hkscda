@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
+import ts from "typescript";
 import type { DocumentSlot } from "@/lib/documents/types";
 import type { PublicPaymentMethod } from "@/lib/paymentPublicConfig/types";
+import { donationSubmitFailureMessage } from "../components/site/donationSubmitFailureCopy";
+import { discardCheckoutIntent, selectCheckoutIntent } from "../lib/donations/checkoutIntent";
 
 const ALL_METHODS: PublicPaymentMethod[] = [
   { method: "stripe", displayLabelZh: "信用卡", displayLabelEn: "Card", details: {} },
@@ -420,6 +425,155 @@ describe("the custom amount field", () => {
 
   test("keeps whole dollars when the flag is anything but true", async () => {
     expect(await renderCustomAmountField("false")).toContain('step="1"');
+  });
+});
+
+describe("a refused donation submission", () => {
+  type Answer = { status: number; body?: { error?: string; code?: string; donationId?: string } };
+
+  // Runs the production handleSubmit with the answer the server gives and records every state
+  // setter it calls. Reading the function out of donate.tsx keeps this on the real code, as
+  // turnstileCallerRecovery.test.ts does for the path where the request throws.
+  async function submitAnswered(answer: Answer, language: "zh-HK" | "en" = "zh-HK") {
+    const path = fileURLToPath(new URL("./donate.tsx", import.meta.url));
+    const ast = ts.createSourceFile(
+      path,
+      readFileSync(path, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    let callback = "";
+    const visit = (node: ts.Node) => {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === "handleSubmit")
+        callback = node.getText(ast);
+      ts.forEachChild(node, visit);
+    };
+    visit(ast);
+    expect(callback).not.toBe("");
+    const compiled = new Bun.Transpiler({ loader: "ts" }).transformSync(callback);
+    const calls: Array<[string, unknown]> = [];
+    const sessionStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+    const scope: Record<string, unknown> = {
+      checkoutEnabled: true,
+      turnstileEnabled: true,
+      turnstileToken: "synthetic-token",
+      amountHkd: 100,
+      language,
+      method: "stripe",
+      availableMethods: [{ method: "stripe", configVersion: 1 }],
+      isDonationMethodAvailable: () => true,
+      checkoutExperienceFromViewport: () => "desktop_qr",
+      createDonationRequest: (value: unknown) => value,
+      donationSubmitFailureMessage,
+      fetch: async () => new Response(JSON.stringify(answer.body ?? {}), { status: answer.status }),
+      t: {
+        submitError: "generic",
+        checkoutRecoveryRequired: "recovery",
+        recoveryReference: "reference",
+      },
+      window: {
+        innerWidth: 1024,
+        crypto: {
+          randomUUID: () => "11111111-2222-4333-8444-555555555555",
+          subtle: { digest: async () => new Uint8Array(32).buffer },
+        },
+        sessionStorage,
+      },
+      checkoutIntentRef: { current: null },
+      selectCheckoutIntent,
+      discardCheckoutIntent,
+      browserCheckoutIntentStorage: () => sessionStorage,
+      TextEncoder,
+      Uint8Array,
+      Array,
+      console: { error: () => {} },
+      Number,
+      JSON,
+      Error,
+      Math,
+    };
+    const context = new Proxy(scope, {
+      has: () => true,
+      get(target, key) {
+        if (key === Symbol.unscopables) return undefined;
+        if (typeof key === "string" && key.startsWith("set"))
+          return (value: unknown) =>
+            calls.push([key, typeof value === "function" ? value(0) : value]);
+        return target[key as string];
+      },
+    });
+    const run = new Function("scope", `with(scope) { ${compiled}; return handleSubmit; }`)(context);
+    await run({ preventDefault() {} });
+    return {
+      calls,
+      shown: calls.filter(([setter]) => setter === "setError").at(-1)?.[1] as string | null,
+    };
+  }
+
+  const refusals: Array<[string, Answer]> = [
+    ["a verification that did not pass", { status: 403, body: { error: "Verification failed" } }],
+    ["too many requests", { status: 429, body: { error: "Too many requests." } }],
+    ["a service that cannot count requests", { status: 503, body: { error: "Unavailable" } }],
+    [
+      "a payment method that is off",
+      { status: 422, body: { error: "Checkout is not available.", code: "method_unavailable" } },
+    ],
+  ];
+
+  test.each(refusals)(
+    "tells the donor about %s, in the language they use",
+    async (_name, answer) => {
+      for (const language of ["zh-HK", "en"] as const) {
+        const { shown } = await submitAnswered(answer, language);
+
+        expect(shown).toBe(
+          donationSubmitFailureMessage(language, answer.status, answer.body?.code),
+        );
+        expect(shown).not.toBe("generic");
+        expect(/[一-鿿]/.test(shown ?? "")).toBe(language === "zh-HK");
+      }
+    },
+  );
+
+  test("tells the four refusals apart", async () => {
+    const shown = new Set<string | null>();
+    for (const [, answer] of refusals) shown.add((await submitAnswered(answer)).shown);
+
+    expect(shown.size).toBe(refusals.length);
+  });
+
+  test.each(refusals)(
+    "gets the verification widget a fresh token after %s",
+    async (_name, answer) => {
+      const { calls } = await submitAnswered(answer);
+
+      expect(calls).toContainEqual(["setTurnstileToken", null]);
+      expect(calls).toContainEqual(["setTurnstileResetKey", 1]);
+      expect(calls).toContainEqual(["setLoading", false]);
+    },
+  );
+
+  test("keeps the generic message for an error the donor cannot act on", async () => {
+    for (const answer of [
+      { status: 500, body: { error: "Donation could not be created" } },
+      { status: 400, body: { error: "Invalid donation request" } },
+      { status: 409, body: { error: "Donation request conflicts with an existing intent" } },
+    ] satisfies Answer[]) {
+      const { calls, shown } = await submitAnswered(answer);
+
+      expect(shown).toBe("generic");
+      expect(calls).toContainEqual(["setTurnstileResetKey", 1]);
+    }
+  });
+
+  test("still answers a checkout it cannot confirm with the recovery message", async () => {
+    const { shown } = await submitAnswered({
+      status: 409,
+      body: { code: "checkout_recovery_required", donationId: "donation-1" },
+    });
+
+    expect(shown).toBe("recovery reference: donation-1");
   });
 });
 
