@@ -219,11 +219,18 @@ names the missing variable.
 ### 3. Enter an amount with cents
 
 The sandbox chooses what to simulate from the cents of the amount (the table in
-the next section). In a development build (`bun run dev`) the custom amount field
-takes cents, up to two decimals, so type `10.81` straight into it. A production
-build, such as a Vercel preview, only takes whole dollars (`step="1"`), and the
-browser refuses to submit `10.81`. There, lift the limit on the page from the
-browser console on `/donate`, then type the amount:
+the next section). The custom amount field takes cents, up to two decimals, in a
+development build (`bun run dev`) and in any build that sets
+`VITE_PUBLIC_ALLOW_CENT_AMOUNTS=true`, so type `10.81` straight into it. Every
+other build only takes whole dollars (`step="1"`), as donors get it in
+Production, and the browser refuses to submit `10.81`.
+
+To test on a deployment, set `VITE_PUBLIC_ALLOW_CENT_AMOUNTS=true` for the
+environment you test in and redeploy. It is a build-time variable, so a change
+shows only in the next build. Remove it when the testing is done: while it is set,
+every donor on that environment can type cents too. For a quick check without a
+redeploy, lift the limit on the page from the browser console on `/donate`, then
+type the amount:
 
 ```js
 document.getElementById("donation-custom-amount").step = "any";
@@ -262,8 +269,9 @@ https address and restart.
 
 The PayMe sandbox decides what to simulate from the cent part of the amount, so
 the donation has to end in one of these. A development build of the donation form
-takes cents; step 3 of "PayMe Local Testing" covers entering them and what a
-production build needs. They come from HSBC's test pack
+takes cents, and so does a build that sets `VITE_PUBLIC_ALLOW_CENT_AMOUNTS=true`;
+step 3 of "PayMe Local Testing" covers entering them and what any other build
+needs. They come from HSBC's test pack
 (`docs/payme/PayMe_APIs_Test_Pack_v1.8.xlsx`, "Sandbox Test Summary"):
 
 | Amount ends in | The sandbox                                      | What the donor sees on a desktop                                                                               |
@@ -291,6 +299,7 @@ configuration only; no code changes:
 | `PAYME_SIGNING_KEY_ID`, `PAYME_SIGNING_KEY` | sandbox signing key                     | production signing key                |
 | `PAYME_API_VERSION`                         | `0.12`                                  | `0.12`, unless HSBC says otherwise    |
 | `APP_URL`                                   | an https origin PayMe can reach         | the production origin                 |
+| `VITE_PUBLIC_ALLOW_CENT_AMOUNTS`            | `true`, to type the sandbox cents       | unset or `false`: whole dollars only  |
 
 1. Complete HSBC's "Path to live". Run the sandbox test cases above and send the
    PayMe Integration Team the filled-in test execution evidence: screenshots in
@@ -306,8 +315,9 @@ configuration only; no code changes:
    portal.
 3. Put the production values in the Vercel **Production** environment only. Keep
    the sandbox values in Preview and in local `.env.local`, so a preview deploy or
-   a laptop can never move real money. Redeploy: variable changes apply only to
-   new deployments.
+   a laptop can never move real money. Check that `VITE_PUBLIC_ALLOW_CENT_AMOUNTS`
+   is not set in Production, where donors give whole dollars. Redeploy: variable
+   changes apply only to new deployments.
 4. The webhook address is sent to PayMe as `notificationUri` with every payment
    request, built from `APP_URL`, so it follows the environment. Tell HSBC the
    production address, `{APP_URL}/api/webhooks/payme`, as in the enabling steps
