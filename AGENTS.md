@@ -11,7 +11,7 @@ volunteer journey and a role-gated admin back office.
 - **Styling**: Tailwind CSS v4 (utility-first, CSS variables for theming)
 - **UI components**: shadcn/ui on Radix UI primitives (`src/components/ui/`)
 - **Payments/email**: Stripe, PayPal, AlipayHK (COD) and HSBC PayMe webhooks, Resend, pdf-lib receipts
-- **Abuse controls**: Upstash Redis rate limiting, Cloudflare Turnstile
+- **Abuse controls**: Postgres rate limiting (`rate_limit_hit`), Cloudflare Turnstile
 - **Runtime/package manager**: Bun
 - **Deploy target**: Vercel (Nitro `vercel` preset → `.vercel/output`)
 
@@ -76,11 +76,13 @@ enforces the pairing.
 - App-called RPCs go in the `public` schema and must be granted to `service_role` —
   the `private` schema is not exposed to PostgREST.
 - Public POST endpoints accepting a **user-submitted form** are rate limited
-  (`enforceRateLimit`) and Turnstile-verified. Both fail _open_ when unconfigured;
-  `assertTurnstileConfigFromEnv()`/`assertUpstashConfigFromEnv()` boot-fail on an
-  inconsistent production pair (one of the two required env vars set, one missing).
-  A fully-absent Upstash pair doesn't boot-fail (may be an intentional, deferred
-  rollout) but logs once via `warnUpstashDisabledOnce()`.
+  (`enforceRateLimit`) and Turnstile-verified. Rate limits are counted in Postgres
+  (`rate_limit_hit`, service role only) and enforced in production only; elsewhere they
+  are not enforced and the database is not touched. In production a route marked
+  `requireAvailability` refuses (503) when the counter cannot be reached, and Turnstile
+  refuses (403) when `TURNSTILE_SECRET_KEY` is missing. `assertTurnstileConfigFromEnv()`
+  boot-fails on an inconsistent production pair (one of the two required env vars set,
+  one missing).
   Endpoints that receive a **browser-native automated payload** instead (e.g.
   `/api/csp-report`, populated by the browser's own CSP reporting machinery, not
   by page JS or a user action) have no Turnstile widget to obtain a token from —

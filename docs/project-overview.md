@@ -74,7 +74,7 @@ HKSCDA（香港拯救貓狗協會）的網站重建專案：把舊官網重做�
 - **UI**：shadcn/ui on Radix（`src/components/ui/`）
 - **金流**：Stripe、PayPal、AlipayHK COD、HSBC PayMe（API）；FPS 走手動對帳
 - **Email**：Resend；PDF 收據用 `pdf-lib` + `@pdf-lib/fontkit`
-- **濫用控制**：Upstash Redis rate limit、Cloudflare Turnstile、強制 CSP
+- **濫用控制**：Postgres rate limit（`rate_limit_hit`）、Cloudflare Turnstile、強制 CSP
 - **執行環境／套件管理**：Bun（`.bun-version` 固定 1.3.14）
 - **部署**：Vercel，Nitro `vercel` preset → `.vercel/output`
 

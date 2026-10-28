@@ -1,47 +1,12 @@
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { getSupabaseServerConfig } from "../donations/config.server";
+import { createSupabaseServiceClient } from "../supabase.server";
+import { createPostgresLimiter, RateLimitStoreError } from "./postgresRateLimiter.server";
 import { isProductionRuntime } from "./turnstile.server";
 
-// A sliding-window duration string accepted by @upstash/ratelimit, e.g. "1 m".
+// A sliding-window duration string, e.g. "1 m". The database accepts one second to one day.
 export type RateLimitWindow = `${number} ${"ms" | "s" | "m" | "h" | "d"}`;
-
-/**
- * Fail loudly at startup when only one of the two required Upstash env vars
- * is set in production.
- *
- * `getRedis()` below already treats "one set, one missing" the same as
- * "neither set" (rate limiting silently disabled) — that's the right
- * fail-open behavior for a genuinely unconfigured deployment, but a partial
- * pair has no legitimate cause; it's almost always a typo in one of the two
- * variable names. Turning that into an obvious boot failure (mirroring
- * {@link import("./turnstile.server").assertTurnstileConfig}) catches the
- * mistake immediately instead of silently running with rate limiting off.
- */
-export function assertUpstashConfig(config: {
-  url?: string | null;
-  token?: string | null;
-  isProduction: boolean;
-}): void {
-  if (!config.isProduction) return;
-  const hasUrl = Boolean(config.url);
-  const hasToken = Boolean(config.token);
-  if (hasUrl === hasToken) return;
-  throw new Error(
-    "Upstash misconfiguration: set BOTH UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN, " +
-      `or neither. Got URL ${hasUrl ? "set" : "MISSING"}, token ${hasToken ? "set" : "MISSING"}. ` +
-      "A partial pair almost always means a typo in one of the two variable names.",
-  );
-}
-
-/** Run {@link assertUpstashConfig} against the live environment at startup. */
-export function assertUpstashConfigFromEnv(env: NodeJS.ProcessEnv = process.env): void {
-  assertUpstashConfig({
-    url: env.UPSTASH_REDIS_REST_URL,
-    token: env.UPSTASH_REDIS_REST_TOKEN,
-    isProduction: isProductionRuntime(env),
-  });
-}
 
 export type RateLimitOptions = {
   /** Namespace so different endpoints keep independent counters. */
@@ -64,7 +29,7 @@ export type RateLimitResult = {
 };
 
 // Minimal structural type so call sites and tests can inject a fake limiter
-// without depending on the concrete Upstash class.
+// without a database.
 export type RateLimiter = {
   limit(identifier: string): Promise<{
     success: boolean;
@@ -86,8 +51,8 @@ export type RateLimiter = {
  * We therefore prefer the headers Vercel sets itself (not client-spoofable):
  *   1. `x-vercel-forwarded-for` — Vercel's real client IP.
  *   2. `x-real-ip` — Vercel's real client IP.
- * Only if neither is present (non-Vercel/local dev, where rate-limiting is a
- * no-op because Upstash is unconfigured) do we fall back to the RIGHTMOST
+ * Only if neither is present (non-Vercel/local dev, where rate limits are not
+ * enforced) do we fall back to the RIGHTMOST
  * `x-forwarded-for` entry (the hop appended closest to our edge) — never the
  * leftmost, attacker-controlled one.
  */
@@ -127,71 +92,79 @@ function firstHeaderEntry(value: string | null | undefined): string | undefined 
   return first && first.length > 0 ? first : undefined;
 }
 
-let warnedUpstashDisabled = false;
-function warnUpstashDisabledOnce(): void {
-  if (warnedUpstashDisabled) return;
-  warnedUpstashDisabled = true;
-  if (isProductionRuntime()) {
-    console.error(
-      "UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN not set in production: rate limiting is " +
-        "DISABLED (failing open). This should only happen when rate limiting is intentionally " +
-        "turned off.",
-    );
-  }
+/** How the limiter reaches the database. `secret` keys the hash that names buckets. */
+export type RateLimitDatabase = { client: Pick<SupabaseClient, "rpc">; secret: string };
+
+// Throws when the Supabase service settings are missing.
+function serviceDatabase(): RateLimitDatabase {
+  const { serviceRoleKey } = getSupabaseServerConfig();
+  return { client: createSupabaseServiceClient(), secret: serviceRoleKey };
 }
 
-let cachedRedis: Redis | null | undefined;
-function getRedis(): Redis | null {
-  if (cachedRedis !== undefined) return cachedRedis;
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!(url && token)) warnUpstashDisabledOnce();
-  cachedRedis = url && token ? new Redis({ url, token }) : null;
-  return cachedRedis;
+let warnedUnavailable = false;
+function warnUnavailableOnce(): void {
+  if (warnedUnavailable) return;
+  warnedUnavailable = true;
+  console.error(
+    "Rate limiting is unavailable in production: the limiter could not be created. " +
+      "Check the Supabase service settings.",
+  );
 }
 
-const limiterCache = new Map<string, Ratelimit>();
-function getLimiter(opts: RateLimitOptions): RateLimiter | null {
-  const redis = getRedis();
-  if (!redis) return null;
-  const cacheKey = `${opts.prefix}:${opts.max}:${opts.window}`;
-  let limiter = limiterCache.get(cacheKey);
-  if (!limiter) {
-    limiter = new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(opts.max, opts.window),
-      prefix: `rl:${opts.prefix}`,
-      analytics: false,
-    });
-    limiterCache.set(cacheKey, limiter);
+/**
+ * Counts in Postgres, and only in production. Elsewhere (local development, previews, unit
+ * tests) nothing is enforced and the database is not touched, so a developer's repeated
+ * attempts are never blocked and a unit test needs no database.
+ */
+function getLimiter(
+  opts: RateLimitOptions,
+  deps: { isProduction: boolean; database: () => RateLimitDatabase },
+): RateLimiter | null {
+  if (!deps.isProduction) return null;
+  try {
+    return createPostgresLimiter(opts, deps.database());
+  } catch {
+    warnUnavailableOnce();
+    return null;
   }
-  return limiter;
 }
 
 /**
  * Enforce a rate limit for `identifier` (typically a client IP).
  *
- * Public submissions marked `requireAvailability` fail closed in production
- * when Upstash is absent or unavailable. Other callers retain their own policy,
- * including signed webhooks and status reads.
+ * Limits are counted in Postgres (the `rate_limit_hit` function) and enforced in production
+ * only. There, public submissions marked `requireAvailability` fail closed when the counter
+ * cannot be reached; other callers fail open, including signed webhooks and status reads.
  *
  * Pass `deps.limiter` to inject a fake limiter in tests (or `null` to force the
- * unconfigured path).
+ * unconfigured path), and `deps.database` to stand in for the Supabase service client.
  */
 export async function enforceRateLimit(
   identifier: string,
   opts: RateLimitOptions,
-  deps: { limiter?: RateLimiter | null; isProduction?: boolean } = {},
+  deps: {
+    limiter?: RateLimiter | null;
+    isProduction?: boolean;
+    database?: () => RateLimitDatabase;
+  } = {},
 ): Promise<RateLimitResult> {
-  const failClosed = opts.requireAvailability && (deps.isProduction ?? isProductionRuntime());
-  const limiter = deps.limiter !== undefined ? deps.limiter : getLimiter(opts);
+  const isProduction = deps.isProduction ?? isProductionRuntime();
+  const failClosed = opts.requireAvailability && isProduction;
+  const limiter =
+    deps.limiter !== undefined
+      ? deps.limiter
+      : getLimiter(opts, { isProduction, database: deps.database ?? serviceDatabase });
   if (!limiter) return failClosed ? { ok: false, unavailable: true } : { ok: true };
 
   try {
     const { success, limit, remaining, reset } = await limiter.limit(identifier);
     return { ok: success, limit, remaining, reset };
-  } catch {
-    console.error("Rate limit check failed", { failClosed: Boolean(failClosed) });
+  } catch (error) {
+    // The database error code, never the message: it may carry the user's data.
+    console.error("Rate limit check failed", {
+      failClosed: Boolean(failClosed),
+      code: error instanceof RateLimitStoreError ? error.code : undefined,
+    });
     return failClosed ? { ok: false, unavailable: true } : { ok: true };
   }
 }

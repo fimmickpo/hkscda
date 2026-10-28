@@ -26,12 +26,12 @@ export type ReadinessDeps = {
   readCmsRevision: () => Promise<unknown>;
   readPublicAdoption: () => Promise<PublicAdoptionPageData>;
   readVolunteerJobs: () => Promise<void>;
+  /** Resolves when the database can count rate limits; rejects otherwise. */
+  readRateLimit: () => Promise<void>;
   config: {
     isProduction: boolean;
     turnstileSiteKey?: string | null;
     turnstileSecret?: string | null;
-    upstashUrl?: string | null;
-    upstashToken?: string | null;
   };
   releaseSha: string;
   correlationId: string;
@@ -87,23 +87,29 @@ async function adoptionState(read: ReadinessDeps["readPublicAdoption"]): Promise
   }
 }
 
-function antiAbuseState(config: ReadinessDeps["config"]): FeatureState {
+async function antiAbuseState(
+  config: ReadinessDeps["config"],
+  readRateLimit: ReadinessDeps["readRateLimit"],
+): Promise<FeatureState> {
   if (!config.isProduction) return ready;
-  if (
-    !config.turnstileSiteKey ||
-    !config.turnstileSecret ||
-    !config.upstashUrl ||
-    !config.upstashToken
-  ) {
+  if (!config.turnstileSiteKey || !config.turnstileSecret) {
     return { state: "unavailable", code: "ANTI_ABUSE_UNCONFIGURED" };
   }
-  return ready;
+  // Rate limits are counted in Postgres. A database without the rate_limit_hit function, or one
+  // the service role cannot reach, refuses every public form.
+  try {
+    await readRateLimit();
+    return ready;
+  } catch (error) {
+    return { state: "unavailable", code: "RATE_LIMIT_UNAVAILABLE", causeCode: errorCode(error) };
+  }
 }
 
 export async function checkReadiness(deps: ReadinessDeps): Promise<ReadinessReport> {
-  const [cms, adoption, volunteerJobs] = await Promise.all([
+  const [cms, adoption, antiAbuse, volunteerJobs] = await Promise.all([
     cmsState(deps.readCmsRevision),
     adoptionState(deps.readPublicAdoption),
+    antiAbuseState(deps.config, deps.readRateLimit),
     (async (): Promise<FeatureState> => {
       try {
         await deps.readVolunteerJobs();
@@ -126,7 +132,7 @@ export async function checkReadiness(deps: ReadinessDeps): Promise<ReadinessRepo
       }
     })(),
   ]);
-  const features = { cms, adoption, volunteerJobs, antiAbuse: antiAbuseState(deps.config) };
+  const features = { cms, adoption, volunteerJobs, antiAbuse };
   const states = Object.values(features).map((feature) => feature.state);
   return {
     state: states.includes("unavailable")
@@ -159,12 +165,20 @@ export function createReadinessDeps(
     readVolunteerJobs: async () => {
       await validateVolunteerJobActor(client, env.VOLUNTEER_JOB_ACTOR_ID);
     },
+    readRateLimit: async () => {
+      // rate_limit_hit refuses a limit of 0 with 22023 before it writes anything. That answer
+      // proves the function exists and the service role may call it.
+      const { error } = await client.rpc("rate_limit_hit", {
+        p_bucket: "readiness-probe",
+        p_limit: 0,
+        p_window_ms: 60_000,
+      });
+      if (error && error.code !== "22023") throw error;
+    },
     config: {
       isProduction: isProductionRuntime(env),
       turnstileSiteKey: env.VITE_TURNSTILE_SITE_KEY,
       turnstileSecret: env.TURNSTILE_SECRET_KEY,
-      upstashUrl: env.UPSTASH_REDIS_REST_URL,
-      upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
     },
     releaseSha: env.VERCEL_GIT_COMMIT_SHA ?? env.GITHUB_SHA ?? "unknown",
     correlationId: randomUUID(),
