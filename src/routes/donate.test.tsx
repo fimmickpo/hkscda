@@ -379,23 +379,48 @@ test("the consent legend follows the page language", async () => {
   expect(html).not.toContain("Receipts and communication consent");
 });
 
-test("the custom amount field takes whole dollars from HK$10 outside a development build", async () => {
+// bun test is not a development build. The flag is set or cleared here, so what the developer has in
+// .env.local cannot change the result.
+async function renderCustomAmountField(allowCentsFlag?: string) {
   const { DonatePage } = await import("./donate");
+  const previous = process.env.VITE_PUBLIC_ALLOW_CENT_AMOUNTS;
+  if (allowCentsFlag === undefined) delete process.env.VITE_PUBLIC_ALLOW_CENT_AMOUNTS;
+  else process.env.VITE_PUBLIC_ALLOW_CENT_AMOUNTS = allowCentsFlag;
+  try {
+    const html = renderToStaticMarkup(
+      <DonatePage
+        initialSlots={[]}
+        initialMethods={ALL_METHODS}
+        initialSearch={{}}
+        checkoutEnabled
+      />,
+    );
+    return html.match(/<input[^>]*id="donation-custom-amount"[^>]*>/)?.[0] ?? "";
+  } finally {
+    if (previous === undefined) delete process.env.VITE_PUBLIC_ALLOW_CENT_AMOUNTS;
+    else process.env.VITE_PUBLIC_ALLOW_CENT_AMOUNTS = previous;
+  }
+}
 
-  // bun test is not a development build, so this is the field as donors get it.
-  const html = renderToStaticMarkup(
-    <DonatePage
-      initialSlots={[]}
-      initialMethods={ALL_METHODS}
-      initialSearch={{}}
-      checkoutEnabled
-    />,
-  );
-  const field = html.match(/<input[^>]*id="donation-custom-amount"[^>]*>/)?.[0] ?? "";
+describe("the custom amount field", () => {
+  test("takes whole dollars from HK$10 unless the build allows cents", async () => {
+    const field = await renderCustomAmountField();
 
-  expect(field).toContain('type="number"');
-  expect(field).toContain('min="10"');
-  expect(field).toContain('step="1"');
+    expect(field).toContain('type="number"');
+    expect(field).toContain('min="10"');
+    expect(field).toContain('step="1"');
+  });
+
+  test("takes cents in a build that sets VITE_PUBLIC_ALLOW_CENT_AMOUNTS to true", async () => {
+    const field = await renderCustomAmountField("true");
+
+    expect(field).toContain('min="10"');
+    expect(field).toContain('step="0.01"');
+  });
+
+  test("keeps whole dollars when the flag is anything but true", async () => {
+    expect(await renderCustomAmountField("false")).toContain('step="1"');
+  });
 });
 
 test("mobile payme response redirects to appLink (checkoutExperience is wap below 768px)", async () => {

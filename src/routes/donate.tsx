@@ -667,7 +667,10 @@ export function DonatePage({
                     aria-describedby={undefined}
                     type="number"
                     min="10"
-                    step={customAmountStep(import.meta.env.DEV)}
+                    step={customAmountStep({
+                      development: import.meta.env.DEV,
+                      allowCentsFlag: import.meta.env.VITE_PUBLIC_ALLOW_CENT_AMOUNTS,
+                    })}
                     value={customAmount}
                     onChange={(event) => setCustomAmount(event.target.value)}
                     className="w-full rounded-xl border border-[var(--color-border)] bg-white px-4 py-3 text-sm focus:border-[var(--color-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
